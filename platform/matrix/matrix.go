@@ -98,12 +98,13 @@ func New(opts map[string]any) (core.Platform, error) {
 	userID, _ := opts["user_id"].(string)
 	allowFrom, _ := opts["allow_from"].(string)
 	core.CheckAllowFrom("matrix", allowFrom)
-	allowedRoomID, _ := opts["room_id"].(string)
-	if allowedRoomID == "" {
-		allowedRoomID, _ = opts["allowed_room_id"].(string)
+	roomID, _ := opts["room_id"].(string)
+	roomID = strings.TrimSpace(roomID)
+	if roomID == "" {
+		return nil, fmt.Errorf("matrix: room_id is required")
 	}
-	if allowedRoomID != "" && !strings.HasPrefix(allowedRoomID, "!") {
-		return nil, fmt.Errorf("matrix: room_id must be a Matrix room ID")
+	if err := validateRoomID(roomID); err != nil {
+		return nil, err
 	}
 
 	groupReplyAll, _ := opts["group_reply_all"].(bool)
@@ -143,7 +144,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		accessToken:           accessToken,
 		userID:                userID,
 		allowFrom:             allowFrom,
-		allowedRoomID:         id.RoomID(allowedRoomID),
+		allowedRoomID:         id.RoomID(roomID),
 		groupReplyAll:         groupReplyAll,
 		shareSessionInChannel: shareSession,
 		autoJoin:              autoJoin,
@@ -793,7 +794,19 @@ func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
 // --- Internal helpers ---
 
 func (p *Platform) roomAllowed(roomID id.RoomID) bool {
-	return p.allowedRoomID == "" || roomID == p.allowedRoomID
+	return p.allowedRoomID != "" && roomID == p.allowedRoomID
+}
+
+func validateRoomID(roomID string) error {
+	if strings.HasPrefix(roomID, "!agent:") {
+		return fmt.Errorf("matrix: room_id must be the real Matrix room ID, not legacy !agent:<server>")
+	}
+
+	serverSep := strings.LastIndexByte(roomID, ':')
+	if !strings.HasPrefix(roomID, "!") || serverSep <= 1 || serverSep == len(roomID)-1 {
+		return fmt.Errorf("matrix: room_id must be a Matrix room ID")
+	}
+	return nil
 }
 
 func (p *Platform) buildSessionKey(roomID id.RoomID, sender id.UserID) string {

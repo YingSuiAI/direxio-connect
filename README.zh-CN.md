@@ -101,6 +101,6 @@ dirextalk-connect daemon status --service-name t1.dirextalk.ai
 ## Dirextalk 约束
 
 - Matrix 用户必须是本地 `@agent:<server>`，不能使用 portal owner session。
-- `room_id` 必须是真实持久化的 Dirextalk `agent_room_id`；deployer 会拒绝 `!agent:<domain>` 这类旧伪 id。
+- `room_id` 为必填，且必须是真实持久化的 Dirextalk `agent_room_id`；bridge 会拒绝 `!agent:<domain>` 这类旧伪 id。
 - 仅支持 `type = "matrix"`。
 - 上游 cc-connect 的其他聊天平台已按 Dirextalk 需求删除。

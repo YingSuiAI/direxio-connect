@@ -37,10 +37,32 @@ func TestNew_MissingAccessToken(t *testing.T) {
 	}
 }
 
+func TestNew_MissingRoomID(t *testing.T) {
+	_, err := New(map[string]any{
+		"homeserver":   "https://matrix.org",
+		"access_token": "syt_test",
+	})
+	if err == nil || !strings.Contains(err.Error(), "room_id is required") {
+		t.Fatalf("expected room_id required error, got %v", err)
+	}
+}
+
+func TestNew_DoesNotFallbackToLegacyAllowedRoomID(t *testing.T) {
+	_, err := New(map[string]any{
+		"homeserver":      "https://matrix.org",
+		"access_token":    "syt_test",
+		"allowed_room_id": "!room:matrix.org",
+	})
+	if err == nil || !strings.Contains(err.Error(), "room_id is required") {
+		t.Fatalf("expected room_id required error, got %v", err)
+	}
+}
+
 func TestNew_ValidConfig(t *testing.T) {
 	p, err := New(map[string]any{
 		"homeserver":   "https://matrix.org",
 		"access_token": "syt_test",
+		"room_id":      "!room:matrix.org",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -52,6 +74,9 @@ func TestNew_ValidConfig(t *testing.T) {
 	if plat.accessToken != "syt_test" {
 		t.Errorf("accessToken = %q, want syt_test", plat.accessToken)
 	}
+	if plat.allowedRoomID != "!room:matrix.org" {
+		t.Errorf("allowedRoomID = %q, want !room:matrix.org", plat.allowedRoomID)
+	}
 	if plat.autoJoin != true {
 		t.Error("autoJoin should default to true")
 	}
@@ -61,6 +86,7 @@ func TestNew_AutoJoinDefault(t *testing.T) {
 	p, _ := New(map[string]any{
 		"homeserver":   "https://matrix.org",
 		"access_token": "tok",
+		"room_id":      "!room:matrix.org",
 	})
 	plat := p.(*Platform)
 	if !plat.autoJoin {
@@ -72,6 +98,7 @@ func TestNew_AutoJoinExplicitFalse(t *testing.T) {
 	p, _ := New(map[string]any{
 		"homeserver":   "https://matrix.org",
 		"access_token": "tok",
+		"room_id":      "!room:matrix.org",
 		"auto_join":    false,
 	})
 	plat := p.(*Platform)
@@ -84,6 +111,7 @@ func TestNew_AutoVerifyDefault(t *testing.T) {
 	p, _ := New(map[string]any{
 		"homeserver":   "https://matrix.org",
 		"access_token": "tok",
+		"room_id":      "!room:matrix.org",
 	})
 	plat := p.(*Platform)
 	if !plat.autoVerify {
@@ -95,6 +123,7 @@ func TestNew_AutoVerifyExplicitFalse(t *testing.T) {
 	p, _ := New(map[string]any{
 		"homeserver":   "https://matrix.org",
 		"access_token": "tok",
+		"room_id":      "!room:matrix.org",
 		"auto_verify":  false,
 	})
 	plat := p.(*Platform)
@@ -107,6 +136,7 @@ func TestNew_ProxyInvalidURL(t *testing.T) {
 	_, err := New(map[string]any{
 		"homeserver":   "https://matrix.org",
 		"access_token": "tok",
+		"room_id":      "!room:matrix.org",
 		"proxy":        "://bad",
 	})
 	if err == nil || !strings.Contains(err.Error(), "invalid proxy URL") {
@@ -118,6 +148,7 @@ func TestNew_ProxyValidURL(t *testing.T) {
 	p, err := New(map[string]any{
 		"homeserver":   "https://matrix.org",
 		"access_token": "tok",
+		"room_id":      "!room:matrix.org",
 		"proxy":        "http://proxy:8080",
 	})
 	if err != nil {
@@ -135,7 +166,7 @@ func TestNew_AllOptions(t *testing.T) {
 		"access_token":             "tok",
 		"user_id":                  "@bot:matrix.org",
 		"allow_from":               "@alice:matrix.org",
-		"room_id":                  "!agent:matrix.org",
+		"room_id":                  "!room:matrix.org",
 		"auto_join":                false,
 		"share_session_in_channel": true,
 		"group_reply_all":          true,
@@ -151,7 +182,7 @@ func TestNew_AllOptions(t *testing.T) {
 	if plat.allowFrom != "@alice:matrix.org" {
 		t.Errorf("allowFrom = %q", plat.allowFrom)
 	}
-	if plat.allowedRoomID != "!agent:matrix.org" {
+	if plat.allowedRoomID != "!room:matrix.org" {
 		t.Errorf("allowedRoomID = %q", plat.allowedRoomID)
 	}
 	if plat.shareSessionInChannel != true {
@@ -163,13 +194,28 @@ func TestNew_AllOptions(t *testing.T) {
 }
 
 func TestNew_InvalidRoomID(t *testing.T) {
+	for _, roomID := range []string{"not-a-room", "!room"} {
+		t.Run(roomID, func(t *testing.T) {
+			_, err := New(map[string]any{
+				"homeserver":   "https://matrix.org",
+				"access_token": "tok",
+				"room_id":      roomID,
+			})
+			if err == nil || !strings.Contains(err.Error(), "room_id must be a Matrix room ID") {
+				t.Fatalf("expected room_id error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestNew_RejectsLegacyPseudoAgentRoomID(t *testing.T) {
 	_, err := New(map[string]any{
 		"homeserver":   "https://matrix.org",
 		"access_token": "tok",
-		"room_id":      "not-a-room",
+		"room_id":      "!agent:matrix.org",
 	})
-	if err == nil || !strings.Contains(err.Error(), "room_id must be a Matrix room ID") {
-		t.Fatalf("expected room_id error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "legacy !agent:<server>") {
+		t.Fatalf("expected legacy room_id error, got %v", err)
 	}
 }
 
@@ -179,6 +225,7 @@ func TestPlatform_Name(t *testing.T) {
 	p, _ := New(map[string]any{
 		"homeserver":   "https://matrix.org",
 		"access_token": "tok",
+		"room_id":      "!room:matrix.org",
 	})
 	if p.Name() != "matrix" {
 		t.Errorf("Name() = %q, want matrix", p.Name())
@@ -289,10 +336,18 @@ func TestIsDirectedAtBot(t *testing.T) {
 	}
 }
 
+func TestRoomAllowedRejectsWhenUnconfigured(t *testing.T) {
+	p := &Platform{}
+
+	if p.roomAllowed("!room:server") {
+		t.Fatal("roomAllowed should reject all rooms when room_id is not configured")
+	}
+}
+
 // --- ReconstructReplyCtx ---
 
 func TestReconstructReplyCtx(t *testing.T) {
-	p := &Platform{}
+	p := &Platform{allowedRoomID: "!abc:server"}
 
 	tests := []struct {
 		name    string
@@ -419,6 +474,7 @@ func TestPlatform_StopWithoutStart(t *testing.T) {
 	p, _ := New(map[string]any{
 		"homeserver":   "https://matrix.org",
 		"access_token": "tok",
+		"room_id":      "!room:matrix.org",
 	})
 	err := p.Stop()
 	if err != nil {
@@ -430,6 +486,7 @@ func TestPlatform_StartStopIdempotent(t *testing.T) {
 	p, _ := New(map[string]any{
 		"homeserver":   "https://matrix.org",
 		"access_token": "tok",
+		"room_id":      "!room:matrix.org",
 	})
 	plat := p.(*Platform)
 
@@ -628,6 +685,7 @@ func TestPlatform_SetLifecycleHandler(t *testing.T) {
 	p, _ := New(map[string]any{
 		"homeserver":   "https://matrix.org",
 		"access_token": "tok",
+		"room_id":      "!room:matrix.org",
 	})
 	plat := p.(*Platform)
 
@@ -644,6 +702,7 @@ func TestPlatform_SetLifecycleHandler(t *testing.T) {
 func TestHandleMessage_SkipsOwnMessages(t *testing.T) {
 	p := &Platform{
 		selfUserID:    "@bot:matrix.org",
+		allowedRoomID: "!room:server",
 		dedup:         core.MessageDedup{},
 		groupReplyAll: true,
 	}
@@ -654,6 +713,7 @@ func TestHandleMessage_SkipsOwnMessages(t *testing.T) {
 	}
 
 	evt := &event.Event{
+		RoomID: "!room:server",
 		Sender: "@bot:matrix.org",
 		ID:     "$own_msg",
 		Type:   event.EventMessage,
@@ -674,6 +734,7 @@ func TestHandleMessage_SkipsOwnMessages(t *testing.T) {
 func TestHandleMessage_SkipsDuplicates(t *testing.T) {
 	p := &Platform{
 		selfUserID:    "@bot:matrix.org",
+		allowedRoomID: "!room:server",
 		dedup:         core.MessageDedup{},
 		groupReplyAll: true,
 	}
@@ -684,6 +745,7 @@ func TestHandleMessage_SkipsDuplicates(t *testing.T) {
 	}
 
 	evt := &event.Event{
+		RoomID:    "!room:server",
 		Sender:    "@user:matrix.org",
 		ID:        "$dup_msg",
 		Type:      event.EventMessage,
@@ -711,6 +773,7 @@ func TestHandleMessage_SkipsOldMessages(t *testing.T) {
 
 	p := &Platform{
 		selfUserID:    "@bot:matrix.org",
+		allowedRoomID: "!room:server",
 		dedup:         core.MessageDedup{},
 		groupReplyAll: true,
 	}
@@ -721,6 +784,7 @@ func TestHandleMessage_SkipsOldMessages(t *testing.T) {
 	}
 
 	evt := &event.Event{
+		RoomID:    "!room:server",
 		Sender:    "@user:matrix.org",
 		ID:        "$old_msg",
 		Type:      event.EventMessage,
@@ -742,6 +806,7 @@ func TestHandleMessage_SkipsOldMessages(t *testing.T) {
 func TestHandleMessage_DispatchesText(t *testing.T) {
 	p := &Platform{
 		selfUserID:    "@bot:matrix.org",
+		allowedRoomID: "!room:server",
 		dedup:         core.MessageDedup{},
 		groupReplyAll: true,
 	}
@@ -789,7 +854,7 @@ func TestHandleMessage_DispatchesText(t *testing.T) {
 func TestHandleMessage_SkipsDisallowedRoom(t *testing.T) {
 	p := &Platform{
 		selfUserID:    "@bot:matrix.org",
-		allowedRoomID: "!agent:server",
+		allowedRoomID: "!room:server",
 		dedup:         core.MessageDedup{},
 		groupReplyAll: true,
 	}
@@ -822,7 +887,7 @@ func TestHandleMessage_SkipsDisallowedRoom(t *testing.T) {
 func TestHandleMessage_DispatchesAllowedRoom(t *testing.T) {
 	p := &Platform{
 		selfUserID:    "@bot:matrix.org",
-		allowedRoomID: "!agent:server",
+		allowedRoomID: "!room:server",
 		dedup:         core.MessageDedup{},
 		groupReplyAll: true,
 	}
@@ -833,7 +898,7 @@ func TestHandleMessage_DispatchesAllowedRoom(t *testing.T) {
 	}
 
 	evt := &event.Event{
-		RoomID:    "!agent:server",
+		RoomID:    "!room:server",
 		Sender:    "@alice:matrix.org",
 		ID:        "$text_msg",
 		Type:      event.EventMessage,
@@ -850,8 +915,8 @@ func TestHandleMessage_DispatchesAllowedRoom(t *testing.T) {
 	if received == nil {
 		t.Fatal("expected message from allowed room")
 	}
-	if received.ChannelKey != "!agent:server" {
-		t.Fatalf("ChannelKey = %q, want !agent:server", received.ChannelKey)
+	if received.ChannelKey != "!room:server" {
+		t.Fatalf("ChannelKey = %q, want !room:server", received.ChannelKey)
 	}
 }
 
@@ -860,6 +925,7 @@ func TestHandleMessage_NoticeAndEmote(t *testing.T) {
 		t.Run(string(msgType), func(t *testing.T) {
 			p := &Platform{
 				selfUserID:    "@bot:matrix.org",
+				allowedRoomID: "!room:s",
 				dedup:         core.MessageDedup{},
 				groupReplyAll: true,
 			}
@@ -910,8 +976,9 @@ func TestHandleMemberState_AutoJoinDisabled(t *testing.T) {
 
 func TestHandleMemberState_NotForSelf(t *testing.T) {
 	p := &Platform{
-		autoJoin:   true,
-		selfUserID: "@bot:matrix.org",
+		autoJoin:      true,
+		selfUserID:    "@bot:matrix.org",
+		allowedRoomID: "!room:s",
 	}
 	stateKey := "@other:matrix.org"
 	evt := &event.Event{
@@ -951,6 +1018,7 @@ func TestInterfaceCompliance(t *testing.T) {
 	p, err := New(map[string]any{
 		"homeserver":   "https://matrix.org",
 		"access_token": "tok",
+		"room_id":      "!room:matrix.org",
 	})
 	if err != nil {
 		t.Fatalf("New() error: %v", err)

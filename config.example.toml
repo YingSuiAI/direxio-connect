@@ -49,6 +49,7 @@ homeserver = "https://im.example.com"
 access_token = "agent-matrix-access-token"
 user_id = "@agent:im.example.com"
 device_id = "DIREXTALK_CC_CONNECT"
+# Required: the real persisted Dirextalk agent_room_id. Do not use !agent:<server>.
 room_id = "!real-agent-room:im.example.com"
 share_session_in_channel = true
 group_reply_all = true
