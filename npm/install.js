@@ -11,10 +11,10 @@ const zlib = require("zlib");
 
 const PACKAGE = require("./package.json");
 const VERSION = `v${PACKAGE.version}`;
-const NAME = "direxio-connect";
-const LOG_PREFIX = "direxio-connect";
+const NAME = "dirextalk-connect";
+const LOG_PREFIX = "dirextalk-connect";
 
-const GITHUB_REPO = "YingSuiAI/connect";
+const GITHUB_REPO = "YingSuiAI/dirextalk-connect";
 
 const PLATFORM_MAP = {
   darwin: "darwin",
@@ -52,7 +52,7 @@ function fetch(url, redirects = 5) {
     if (redirects <= 0) return reject(new Error("Too many redirects"));
     const mod = url.startsWith("https") ? https : http;
     mod
-      .get(url, { headers: { "User-Agent": "direxio-connect-npm" } }, (res) => {
+      .get(url, { headers: { "User-Agent": "dirextalk-connect-npm" } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           return resolve(fetch(res.headers.location, redirects - 1));
         }

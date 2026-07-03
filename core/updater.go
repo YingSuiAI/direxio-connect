@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	githubReleasesAPI = "https://api.github.com/repos/YingSuiAI/connect/releases"
-	githubDownload    = "https://github.com/YingSuiAI/connect/releases/download"
-	updateBinaryName  = "direxio-connect"
+	githubReleasesAPI = "https://api.github.com/repos/YingSuiAI/dirextalk-connect/releases"
+	githubDownload    = "https://github.com/YingSuiAI/dirextalk-connect/releases/download"
+	updateBinaryName  = "dirextalk-connect"
 )
 
 type ReleaseInfo struct {
@@ -83,7 +83,7 @@ func fetchReleasesFrom(apiURL string) ([]ReleaseInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "direxio-connect-updater")
+	req.Header.Set("User-Agent", "dirextalk-connect-updater")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := client.Do(req)
@@ -159,7 +159,7 @@ func downloadFile(url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "direxio-connect-updater")
+	req.Header.Set("User-Agent", "dirextalk-connect-updater")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -196,7 +196,7 @@ func extractBinaryFromTarGz(data []byte) ([]byte, error) {
 			return io.ReadAll(tr)
 		}
 	}
-	return nil, fmt.Errorf("direxio-connect binary not found in archive")
+	return nil, fmt.Errorf("dirextalk-connect binary not found in archive")
 }
 
 func extractBinaryFromZip(data []byte) ([]byte, error) {
@@ -215,7 +215,7 @@ func extractBinaryFromZip(data []byte) ([]byte, error) {
 			return io.ReadAll(rc)
 		}
 	}
-	return nil, fmt.Errorf("direxio-connect binary not found in zip archive")
+	return nil, fmt.Errorf("dirextalk-connect binary not found in zip archive")
 }
 
 func replaceBinary(newBinary []byte) error {
@@ -229,7 +229,7 @@ func replaceBinary(newBinary []byte) error {
 	}
 
 	dir := filepath.Dir(execPath)
-	tmpFile, err := os.CreateTemp(dir, "direxio-connect-update-*")
+	tmpFile, err := os.CreateTemp(dir, "dirextalk-connect-update-*")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}

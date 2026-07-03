@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/connect/tests/blackbox/helper"
+	"github.com/YingSuiAI/dirextalk-connect/tests/blackbox/helper"
 )
 
 // ── P0-1: 基础消息收发 ────────────────────────────────────────────────────────

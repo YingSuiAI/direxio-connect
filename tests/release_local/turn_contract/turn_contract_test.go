@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 type turnRecord struct {

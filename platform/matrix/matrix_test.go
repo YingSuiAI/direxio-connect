@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"

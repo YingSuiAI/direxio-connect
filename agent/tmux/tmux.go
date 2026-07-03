@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YingSuiAI/connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 func init() {

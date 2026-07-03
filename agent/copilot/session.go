@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/YingSuiAI/connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 // copilotSession manages a long-running Copilot CLI process using

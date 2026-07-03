@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/YingSuiAI/connect/config"
-	"github.com/YingSuiAI/connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/config"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 func TestParseSendArgs_AttachmentsWithoutMessage(t *testing.T) {

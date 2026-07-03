@@ -1,26 +1,26 @@
-# direxio-connect
+# dirextalk-connect
 
-Bridge local AI coding agents to a Direxio Matrix agents room.
+Bridge local AI coding agents to a Dirextalk Matrix agents room.
 
 Chat with your AI dev assistant from anywhere.
 
 ## Install
 
 ```bash
-npm install -g @direxio/connent
+npm install -g dirextalk
 ```
 
 ## Usage
 
 ```bash
 # Create config
-direxio-connect --version
+dirextalk-connect --version
 
 # Edit config.toml, then run
-direxio-connect
-direxio-connect -config /path/to/config.toml
+dirextalk-connect
+dirextalk-connect -config /path/to/config.toml
 ```
 
 ## Documentation
 
-See full documentation at: https://github.com/YingSuiAI/connect
+See full documentation at: https://github.com/YingSuiAI/dirextalk-connect

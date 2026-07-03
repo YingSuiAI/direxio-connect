@@ -16,10 +16,10 @@ import (
 	"syscall"
 	"time"
 
-	ccconnect "github.com/YingSuiAI/connect"
-	"github.com/YingSuiAI/connect/config"
-	"github.com/YingSuiAI/connect/core"
-	"github.com/YingSuiAI/connect/daemon"
+	ccconnect "github.com/YingSuiAI/dirextalk-connect"
+	"github.com/YingSuiAI/dirextalk-connect/config"
+	"github.com/YingSuiAI/dirextalk-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/daemon"
 	// Agent and platform imports are in separate plugin_*.go files
 	// controlled by build tags. See Makefile for selective compilation.
 )
@@ -36,7 +36,7 @@ var (
 var globalAPIServer *core.APIServer
 
 // defaultResetOnIdleMins is applied when a project does not set
-// reset_on_idle_mins. After this many minutes of user inactivity, direxio-connect
+// reset_on_idle_mins. After this many minutes of user inactivity, dirextalk-connect
 // rotates to a fresh session for the next message instead of resuming the
 // previous transcript via --continue. This avoids "context drift" where stale
 // chat history (failed commands, debugging noise, abandoned tangents) is
@@ -270,7 +270,7 @@ func main() {
 		slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	}
 
-	configFlag := flag.String("config", "", "path to config file (default: ./config.toml or ~/.direxio-connect/config.toml)")
+	configFlag := flag.String("config", "", "path to config file (default: ./config.toml or ~/.dirextalk-connect/config.toml)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	forceFlag := flag.Bool("force", false, "kill any existing instance with the same config before starting")
 	logMaxSizeFlag := flag.String("log-max-size", "", "max bytes for the rotating log file (e.g. 10MB, 512K, 10485760); overrides CC_LOG_MAX_SIZE env var (default: 10MB)")
@@ -293,11 +293,11 @@ func main() {
 	}
 
 	if *showVersion {
-		fmt.Printf("direxio-connect %s\ncommit:  %s\nbuilt:   %s\n", version, commit, buildTime)
+		fmt.Printf("dirextalk-connect %s\ncommit:  %s\nbuilt:   %s\n", version, commit, buildTime)
 		return
 	}
 
-	core.VersionInfo = fmt.Sprintf("direxio-connect %s\ncommit: %s\nbuilt: %s", version, commit, buildTime)
+	core.VersionInfo = fmt.Sprintf("dirextalk-connect %s\ncommit: %s\nbuilt: %s", version, commit, buildTime)
 	core.CurrentVersion = version
 	core.CurrentCommit = commit
 	core.CurrentBuildTime = buildTime
@@ -326,7 +326,7 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("Created default config at %s\n", configPath)
-		fmt.Println("Please edit this file to add your agent and platform credentials, then run direxio-connect again.")
+		fmt.Println("Please edit this file to add your agent and platform credentials, then run dirextalk-connect again.")
 		os.Exit(0)
 	}
 
@@ -342,7 +342,7 @@ func main() {
 	if len(cfg.Projects) == 0 {
 		fmt.Fprintf(os.Stderr, "Error: no projects configured in %s\n", configPath)
 		fmt.Fprintln(os.Stderr, "Add at least one [[project]] section to your config.toml, or run:")
-		fmt.Fprintln(os.Stderr, "  direxio-connect init")
+		fmt.Fprintln(os.Stderr, "  dirextalk-connect init")
 		os.Exit(1)
 	}
 
@@ -1192,7 +1192,7 @@ func main() {
 		apiSrv.Start()
 	}
 
-	slog.Info("direxio-connect is running", "projects", len(engines))
+	slog.Info("dirextalk-connect is running", "projects", len(engines))
 
 	// After startup, check if we were restarted and queue the success
 	// notification. The engine dispatches it on the first OnPlatformReady
@@ -1364,7 +1364,7 @@ func resolveClaudeProjectDir(workDir string) string {
 		return ""
 	}
 	// Claude Code encodes paths by replacing os.PathSeparator with "-"
-	// e.g. /home/leigh/workspace/direxio-connect -> -home-leigh-workspace-direxio-connect
+	// e.g. /home/leigh/workspace/dirextalk-connect -> -home-leigh-workspace-dirextalk-connect
 	encoded := strings.ReplaceAll(workDir, string(os.PathSeparator), "-")
 	dir := filepath.Join(homeDir, ".claude", "projects", encoded)
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
@@ -1374,7 +1374,7 @@ func resolveClaudeProjectDir(workDir string) string {
 }
 
 // resolveConfigPath determines which config file to use.
-// Priority: explicit flag → ./config.toml → ~/.direxio-connect/config.toml
+// Priority: explicit flag → ./config.toml → ~/.dirextalk-connect/config.toml
 func resolveConfigPath(explicit string) string {
 	if explicit != "" {
 		return explicit
@@ -1383,7 +1383,7 @@ func resolveConfigPath(explicit string) string {
 		return "config.toml"
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".direxio-connect", "config.toml")
+		return filepath.Join(home, ".dirextalk-connect", "config.toml")
 	}
 	return "config.toml"
 }
@@ -1393,8 +1393,8 @@ func bootstrapConfig(path string) error {
 		return err
 	}
 
-	const tmpl = `# direxio-connect configuration
-# Docs: https://github.com/YingSuiAI/connect
+	const tmpl = `# dirextalk-connect configuration
+# Docs: https://github.com/YingSuiAI/dirextalk-connect
 
 [log]
 level = "info"
@@ -1410,7 +1410,7 @@ work_dir = "/path/to/your/project"
 mode = "default"
 # model = "claude-sonnet-4-20250514"
 
-# --- Direxio Matrix agents room ---
+# --- Dirextalk Matrix agents room ---
 
 [[projects.platforms]]
 type = "matrix"
@@ -1419,7 +1419,7 @@ type = "matrix"
 homeserver = "http://127.0.0.1:8008"
 access_token = "your-agent-matrix-access-token"
 user_id = "@agent:example.com"
-device_id = "DIREXIO_CC_CONNECT"
+device_id = "DIREXTALK_CC_CONNECT"
 room_id = "!your-real-agent-room:example.com"
 `
 	return os.WriteFile(path, []byte(tmpl), 0o644)
@@ -1441,25 +1441,25 @@ func printUsage() {
 | (_| (_|_____|  (_| (_) | | | | | | |  __/ (__| |_
  \___\__|      \___\___/|_| |_|_| |_|\___|\___|\__|  %s%s
 
-  Bridge a Direxio Matrix agents room to local AI coding agents.
+  Bridge a Dirextalk Matrix agents room to local AI coding agents.
   Supports: Claude Code, Codex, Cursor, Gemini CLI, Qoder CLI, OpenCode
-  Platform: Direxio Matrix
+  Platform: Dirextalk Matrix
 
-  GitHub:  https://github.com/YingSuiAI/connect
-  Docs:    https://github.com/YingSuiAI/connect/blob/main/INSTALL.md
+  GitHub:  https://github.com/YingSuiAI/dirextalk-connect
+  Docs:    https://github.com/YingSuiAI/dirextalk-connect/blob/main/INSTALL.md
 
 Usage:
-  direxio-connect [flags]
-  direxio-connect <command> [args]
+  dirextalk-connect [flags]
+  dirextalk-connect <command> [args]
 
 Flags:
-  --config <path>    Path to config file (default: ./config.toml or ~/.direxio-connect/config.toml)
+  --config <path>    Path to config file (default: ./config.toml or ~/.dirextalk-connect/config.toml)
   --force            Kill any existing instance with the same config before starting
   --version          Print version and exit
   --help             Show this help message
 
 Commands:
-  daemon             Manage direxio-connect as a background service (systemd/launchd/schtasks)
+  daemon             Manage dirextalk-connect as a background service (systemd/launchd/schtasks)
     install          Install and start the daemon service
     uninstall        Remove the daemon service
     start            Start the daemon
@@ -1502,15 +1502,15 @@ Commands:
   config-example     (deprecated: use 'config example' instead)
 
 Examples:
-  direxio-connect                          Start with default config
-  direxio-connect --config /path/to.toml   Start with a specific config file
-  direxio-connect daemon install           Install as a system service
-  direxio-connect daemon logs -f           Follow daemon logs
-  direxio-connect send -m "hello"          Send a message to the active session
-  direxio-connect cron list                List all scheduled tasks
-  direxio-connect update                   Update to the latest version
-  direxio-connect config format            Format the config file
-  direxio-connect config example > c.toml  Save example config to a file
+  dirextalk-connect                          Start with default config
+  dirextalk-connect --config /path/to.toml   Start with a specific config file
+  dirextalk-connect daemon install           Install as a system service
+  dirextalk-connect daemon logs -f           Follow daemon logs
+  dirextalk-connect send -m "hello"          Send a message to the active session
+  dirextalk-connect cron list                List all scheduled tasks
+  dirextalk-connect update                   Update to the latest version
+  dirextalk-connect config format            Format the config file
+  dirextalk-connect config example > c.toml  Save example config to a file
 
 `, v, updateHint)
 }

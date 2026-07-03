@@ -16,7 +16,7 @@ import (
 )
 
 // ProjectSettingsUpdate is passed to SetSaveProjectSettings to persist management API PATCH fields.
-// The implementation (typically in cmd/direxio-connect) maps this to config.ProjectSettingsUpdate.
+// The implementation (typically in cmd/dirextalk-connect) maps this to config.ProjectSettingsUpdate.
 type ProjectSettingsUpdate struct {
 	Language             *string
 	AdminFrom            *string
@@ -57,7 +57,7 @@ type ManagementServer struct {
 	getGlobalSettings    func() map[string]any
 	saveGlobalSettings   func(map[string]any) error
 
-	// Global provider callbacks (set by cmd/direxio-connect)
+	// Global provider callbacks (set by cmd/dirextalk-connect)
 	listGlobalProviders  func() ([]GlobalProviderInfo, error)
 	addGlobalProvider    func(GlobalProviderInfo) error
 	updateGlobalProvider func(name string, info GlobalProviderInfo) error

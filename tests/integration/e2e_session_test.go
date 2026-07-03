@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/connect/config"
-	"github.com/YingSuiAI/connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/config"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 // testConfigPath returns the path to config.test.toml co-located with this

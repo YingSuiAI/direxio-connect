@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/YingSuiAI/connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 func TestSlugify(t *testing.T) {

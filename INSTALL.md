@@ -1,38 +1,38 @@
-# direxio-connect Install
+# dirextalk-connect Install
 
-`direxio-connect` is distributed for Direxio only. The supported bridge target is the Direxio Matrix agent room.
+`dirextalk-connect` is distributed for Dirextalk only. The supported bridge target is the Dirextalk Matrix agent room.
 
 ## Recommended
 
-Use `direxio-deployer`. It calls Direxio `agent.matrix_session.create`, writes the Matrix-only config, and installs the local daemon.
+Use `dirextalk-deployer`. It calls Dirextalk `agent.matrix_session.create`, writes the Matrix-only config, and installs the local daemon.
 
 ## Manual Install
 
 Via npm:
 
 ```bash
-npm install -g @direxio/connent
+npm install -g dirextalk
 ```
 
 Via Homebrew:
 
 ```bash
-brew install direxio-connect
+brew install dirextalk-connect
 ```
 
 Download binary from GitHub Releases:
 
 ```bash
-curl -L -o direxio-connect.tar.gz https://github.com/YingSuiAI/connect/releases/latest/download/direxio-connect-v1.3.3-linux-amd64.tar.gz
-tar xzf direxio-connect.tar.gz
-chmod +x direxio-connect-v1.3.3-linux-amd64
-sudo mv direxio-connect-v1.3.3-linux-amd64 /usr/local/bin/direxio-connect
+curl -L -o dirextalk-connect.tar.gz https://github.com/YingSuiAI/dirextalk-connect/releases/latest/download/dirextalk-connect-v1.3.3-linux-amd64.tar.gz
+tar xzf dirextalk-connect.tar.gz
+chmod +x dirextalk-connect-v1.3.3-linux-amd64
+sudo mv dirextalk-connect-v1.3.3-linux-amd64 /usr/local/bin/dirextalk-connect
 ```
 
 Build from source:
 
 ```bash
-git clone https://github.com/YingSuiAI/connect.git
+git clone https://github.com/YingSuiAI/dirextalk-connect.git
 cd cc-connect
 make build AGENTS=codex PLATFORMS_INCLUDE=matrix
 ```
@@ -41,7 +41,7 @@ make build AGENTS=codex PLATFORMS_INCLUDE=matrix
 
 ```toml
 [[projects]]
-name = "direxio-agent-room"
+name = "dirextalk-agent-room"
 
 [projects.agent]
 type = "codex"
@@ -56,7 +56,7 @@ type = "matrix"
 homeserver = "http://127.0.0.1:8008"
 access_token = "agent-matrix-access-token"
 user_id = "@agent:example.com"
-device_id = "DIREXIO_CC_CONNECT"
+device_id = "DIREXTALK_CC_CONNECT"
 room_id = "!real-agent-room:example.com"
 share_session_in_channel = true
 group_reply_all = true
@@ -67,18 +67,18 @@ auto_verify = false
 Start foreground:
 
 ```bash
-direxio-connect --config /path/to/config.toml
+dirextalk-connect --config /path/to/config.toml
 ```
 
 Install daemon:
 
 ```bash
-direxio-connect daemon install --config /path/to/config.toml --force
+dirextalk-connect daemon install --config /path/to/config.toml --force
 ```
 
 Check daemon:
 
 ```bash
-direxio-connect daemon status
-direxio-connect daemon logs -n 100
+dirextalk-connect daemon status
+dirextalk-connect daemon logs -n 100
 ```

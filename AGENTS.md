@@ -1,28 +1,28 @@
 # AGENTS.md
 
-This repository is the Direxio-maintained fork of cc-connect. It is a local bridge between one Direxio Matrix agents room and one local coding agent runtime.
+This repository is the Dirextalk-maintained fork of cc-connect. It is a local bridge between one Dirextalk Matrix agents room and one local coding agent runtime.
 
 ## Project Scope
 
-- The only supported chat platform is Direxio Matrix through `platform/matrix`.
+- The only supported chat platform is Dirextalk Matrix through `platform/matrix`.
 - Do not add back Feishu, WPS Xiezuo, DingTalk, Telegram, Slack, Discord, LINE, WeCom, Weibo, Weixin, QQ, QQ Bot, or other chat-platform adapters.
 - Keep support for local coding agent backends broad and neutral. Do not make Codex the only first-class backend; Codex, Claude Code, Gemini, Cursor, Copilot, Qoder, OpenCode, and similar local agent runtimes should be treated evenly where the architecture already supports them.
-- The production binary name is `direxio-connect`.
-- The npm package name is `@direxio/connent`.
-- The GitHub repository and release source is `https://github.com/YingSuiAI/connect`.
+- The production binary name is `dirextalk-connect`.
+- The npm package name is `dirextalk`.
+- The GitHub repository and release source is `https://github.com/YingSuiAI/dirextalk-connect`.
 
-## Direxio Matrix Contract
+## Dirextalk Matrix Contract
 
-- The bridge must use the real private Matrix room id persisted by Direxio Message Server as `agent_room_id`.
+- The bridge must use the real private Matrix room id persisted by Dirextalk Message Server as `agent_room_id`.
 - Do not use legacy pseudo ids such as `!agent:<server>`.
 - The Matrix account in the bridge config must be the local `@agent:<server>` identity returned by `agent.matrix_session.create`.
 - The bridge must restrict sync and replies to the configured `room_id`.
 - Replies to users are sent by `@agent:<server>`, not by the portal owner.
-- User text and slash commands are ordinary Matrix text messages in the agent room. Do not add Direxio P2P action facades for normal chat text.
+- User text and slash commands are ordinary Matrix text messages in the agent room. Do not add Dirextalk P2P action facades for normal chat text.
 
 ## Config Rules
 
-Generated Direxio configs should have this shape:
+Generated Dirextalk configs should have this shape:
 
 ```toml
 language = "zh"
@@ -54,29 +54,29 @@ auto_verify = false
 ```
 
 - `admin_from` is a project-level field under `[[projects]]`, not an agent option.
-- `admin_from` must use full Matrix user IDs such as `@owner:a5.direxio.ai`. Matrix sender matching is exact and case-insensitive after trimming.
+- `admin_from` must use full Matrix user IDs such as `@owner:a5.dirextalk.ai`. Matrix sender matching is exact and case-insensitive after trimming.
 - If `admin_from` is empty, privileged commands such as `/dir`, `/shell`, `/show`, `/restart`, `/upgrade`, and `/diff` are blocked by default.
-- Do not use `admin_from = "*"` in generated Direxio configs.
+- Do not use `admin_from = "*"` in generated Dirextalk configs.
 - `/dir reset` must restore the configured `work_dir` and clear the runtime directory override in `data_dir/projects/<project>.state.json`. In multi-workspace mode, clear only the matching workspace override.
 - Runtime state under `data_dir` is not source code and should not be committed.
 
 ## Agent Backend Rules
 
 - Preserve explicit command configuration. If `[projects.agent.options].cmd` and extra args are configured, the backend must use them instead of hardcoding a binary name.
-- Keep app-server and stdio paths platform-neutral. Windows users must be able to run `direxio-connect.exe` from PowerShell without WSL-only assumptions.
+- Keep app-server and stdio paths platform-neutral. Windows users must be able to run `dirextalk-connect.exe` from PowerShell without WSL-only assumptions.
 - Agent backend fixes should include focused tests in the owning backend package, for example `go test ./agent/codex -count=1` for Codex backend changes.
 - Do not silently drop streaming, card, Markdown, permission, or usage-reporting capabilities when adapting an agent backend.
 
 ## Packaging And Release
 
 - Version bumps must keep these files in sync: `Makefile`, `npm/package.json`, README/INSTALL references, and release asset names.
-- Release assets must use the `direxio-connect` name and the `YingSuiAI/connect` repository.
+- Release assets must use the `dirextalk-connect` name and the `YingSuiAI/dirextalk-connect` repository.
 - The npm installer must download from GitHub Releases and should tolerate transient network failures with retries.
 - Before claiming npm install works, verify a real install of the just-published package, for example:
 
 ```powershell
-npm install --prefix <temp-dir> @direxio/connent@<version>
-<temp-dir>\node_modules\.bin\direxio-connect.cmd --version
+npm install --prefix <temp-dir> dirextalk@<version>
+<temp-dir>\node_modules\.bin\dirextalk-connect.cmd --version
 ```
 
 - Use `gh` for GitHub releases when available. A typical release verification path is:
@@ -85,8 +85,8 @@ npm install --prefix <temp-dir> @direxio/connent@<version>
 make build AGENTS=codex PLATFORMS_INCLUDE=matrix
 node --check npm/install.js
 npm pack --dry-run --prefix npm
-gh release view v<version> --repo YingSuiAI/connect
-npm view @direxio/connent@<version> version
+gh release view v<version> --repo YingSuiAI/dirextalk-connect
+npm view dirextalk@<version> version
 ```
 
 ## Development Workflow
@@ -96,7 +96,7 @@ npm view @direxio/connent@<version> version
 - Prefer `rg` for search.
 - Use `apply_patch` for manual source and documentation edits.
 - Do not revert unrelated user changes. If runtime files or build artifacts appear, ignore them or add a targeted `.gitignore` entry when appropriate.
-- Keep generated config paths in the format expected by the process that reads them. Windows-local `direxio-connect.exe` needs Windows-compatible paths, not `/mnt/c/...`.
+- Keep generated config paths in the format expected by the process that reads them. Windows-local `dirextalk-connect.exe` needs Windows-compatible paths, not `/mnt/c/...`.
 
 ## Verification
 
@@ -119,7 +119,7 @@ git diff --check
 
 ## Documentation Rules
 
-- Keep README and INSTALL focused on Direxio operation, not the removed upstream multi-platform product.
+- Keep README and INSTALL focused on Dirextalk operation, not the removed upstream multi-platform product.
 - Do not document unsupported chat platforms.
 - When changing public config, install, release, or command behavior, update README/INSTALL/config examples and this file together.
-- Keep the package spelling `@direxio/connent` unless the package is intentionally renamed across npm, docs, release tooling, and deployer integration.
+- Keep the package spelling `dirextalk` unless the package is intentionally renamed across npm, docs, release tooling, and deployer integration.

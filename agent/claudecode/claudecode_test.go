@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/YingSuiAI/connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 func TestNew_ParsesRunAsUserAndRunAsEnv(t *testing.T) {

@@ -1,4 +1,4 @@
-module github.com/YingSuiAI/connect
+module github.com/YingSuiAI/dirextalk-connect
 
 go 1.25.0
 

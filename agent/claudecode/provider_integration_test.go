@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/connect/config"
-	"github.com/YingSuiAI/connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/config"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 // These integration tests use real provider credentials from ~/.cc-connect/config.toml.

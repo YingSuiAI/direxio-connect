@@ -2,4 +2,4 @@
 
 package main
 
-import _ "github.com/YingSuiAI/connect/agent/pi"
+import _ "github.com/YingSuiAI/dirextalk-connect/agent/pi"

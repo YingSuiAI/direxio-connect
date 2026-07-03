@@ -145,7 +145,7 @@ func runTimerAdd(args []string) {
 
 	sockPath := resolveSocketPath(dataDir)
 	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Error: direxio-connect is not running (socket not found: %s)\n", sockPath)
+		fmt.Fprintf(os.Stderr, "Error: dirextalk-connect is not running (socket not found: %s)\n", sockPath)
 		os.Exit(1)
 	}
 
@@ -216,7 +216,7 @@ func runTimerList(args []string) {
 
 	sockPath := resolveSocketPath(dataDir)
 	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Error: direxio-connect is not running (socket not found: %s)\n", sockPath)
+		fmt.Fprintf(os.Stderr, "Error: dirextalk-connect is not running (socket not found: %s)\n", sockPath)
 		os.Exit(1)
 	}
 
@@ -306,7 +306,7 @@ func runTimerDel(args []string) {
 
 	sockPath := resolveSocketPath(dataDir)
 	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Error: direxio-connect is not running (socket not found: %s)\n", sockPath)
+		fmt.Fprintf(os.Stderr, "Error: dirextalk-connect is not running (socket not found: %s)\n", sockPath)
 		os.Exit(1)
 	}
 
@@ -344,13 +344,13 @@ func runTimerInfo(args []string) {
 
 	if id == "" {
 		fmt.Fprintln(os.Stderr, "Error: timer ID is required")
-		fmt.Fprintln(os.Stderr, "Usage: direxio-connect timer info <id>")
+		fmt.Fprintln(os.Stderr, "Usage: dirextalk-connect timer info <id>")
 		os.Exit(1)
 	}
 
 	sockPath := resolveSocketPath(dataDir)
 	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Error: direxio-connect is not running (socket not found: %s)\n", sockPath)
+		fmt.Fprintf(os.Stderr, "Error: dirextalk-connect is not running (socket not found: %s)\n", sockPath)
 		os.Exit(1)
 	}
 
@@ -388,7 +388,7 @@ func runTimerInfo(args []string) {
 }
 
 func printTimerUsage() {
-	fmt.Println(`Usage: direxio-connect timer <command> [options]
+	fmt.Println(`Usage: dirextalk-connect timer <command> [options]
 
 Commands:
   add       Create a one-shot timer
@@ -396,11 +396,11 @@ Commands:
   info <id> Show detailed info of a timer
   del <id>  Cancel a timer
 
-Run 'direxio-connect timer <command> --help' for details.`)
+Run 'dirextalk-connect timer <command> --help' for details.`)
 }
 
 func printTimerAddUsage() {
-	fmt.Println(`Usage: direxio-connect timer add [options] <delay> <prompt>
+	fmt.Println(`Usage: dirextalk-connect timer add [options] <delay> <prompt>
 
 Create a one-shot timer (fires once after the specified delay).
 
@@ -415,12 +415,12 @@ Options:
       --session-mode <mode>  reuse (default) or new-per-run
       --timeout-mins <n>     Max minutes to wait per run (0 = no limit; default 30)
       --mute                 Suppress all messages (start + result)
-      --data-dir <path>      Data directory (default: ~/.direxio-connect)
+      --data-dir <path>      Data directory (default: ~/.dirextalk-connect)
   -h, --help                 Show this help
 
 Examples:
-  direxio-connect timer add --delay 2h --prompt "Check PR status"
-  direxio-connect timer add --delay 30m --exec "df -h" --desc "Disk check"
-  direxio-connect timer add --at "2026-05-16T09:00" --prompt "Morning standup reminder"
-  direxio-connect timer add 2h Check PR status`)
+  dirextalk-connect timer add --delay 2h --prompt "Check PR status"
+  dirextalk-connect timer add --delay 30m --exec "df -h" --desc "Disk check"
+  dirextalk-connect timer add --at "2026-05-16T09:00" --prompt "Morning standup reminder"
+  dirextalk-connect timer add 2h Check PR status`)
 }
