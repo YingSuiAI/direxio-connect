@@ -39,7 +39,7 @@ func TestHermesACPAdapterInjectsVisibleOnlyContract(t *testing.T) {
 		t.Fatalf("original prompt text = %q, want unchanged", got)
 	}
 	contract := env.Params.Prompt[1].Text
-	if !strings.Contains(contract, "DIREXIO ACP OUTPUT CONTRACT") || !strings.Contains(contract, "最终答案") {
+	if !strings.Contains(contract, "DIREXTALK ACP OUTPUT CONTRACT") || !strings.Contains(contract, "最终答案") {
 		t.Fatalf("contract block missing required wording: %q", contract)
 	}
 }
@@ -102,7 +102,7 @@ func TestHermesACPAdapterBuffersSnakeCaseMessageChunksUntilPromptResponse(t *tes
 		t.Fatalf("rewriteParentLine returned error: %v", err)
 	}
 
-	chunk := []byte(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"field_meta":null,"content":{"field_meta":null,"annotations":null,"text":"The user is asking me to reply with just \"1\" - this is a Direxio interaction and the instructions are very clear: return only the final user-visible answer.1","type":"text"},"message_id":null,"session_update":"agent_message_chunk"}}}`)
+	chunk := []byte(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"field_meta":null,"content":{"field_meta":null,"annotations":null,"text":"The user is asking me to reply with just \"1\" - this is a Dirextalk interaction and the instructions are very clear: return only the final user-visible answer.1","type":"text"},"message_id":null,"session_update":"agent_message_chunk"}}}`)
 	out, err := adapter.rewriteChildLine(chunk)
 	if err != nil {
 		t.Fatalf("rewriteChildLine returned error for snake_case chunk: %v", err)
@@ -144,7 +144,7 @@ func TestHermesACPAdapterRewritesPromptResponseText(t *testing.T) {
 		t.Fatalf("rewriteParentLine returned error: %v", err)
 	}
 
-	response := []byte(`{"jsonrpc":"2.0","id":"turn-1","result":{"final_response":"The user is asking me to reply with just \"1\" - this is a Direxio interaction and the instructions are very clear: return only the final user-visible answer.1","stopReason":"end_turn"}}`)
+	response := []byte(`{"jsonrpc":"2.0","id":"turn-1","result":{"final_response":"The user is asking me to reply with just \"1\" - this is a Dirextalk interaction and the instructions are very clear: return only the final user-visible answer.1","stopReason":"end_turn"}}`)
 	out, err := adapter.rewriteChildLine(response)
 	if err != nil {
 		t.Fatalf("rewriteChildLine returned error for response: %v", err)
@@ -215,12 +215,12 @@ func TestSanitizeHermesVisibleText(t *testing.T) {
 		},
 		{
 			name: "live exact short reply meta narration",
-			in:   `The user is asking me to reply with just "1" - this is a Direxio interaction and the instructions are very clear: return only the final user-visible answer.1`,
+			in:   `The user is asking me to reply with just "1" - this is a Dirextalk interaction and the instructions are very clear: return only the final user-visible answer.1`,
 			want: "1",
 		},
 		{
 			name: "live multiline english reasoning with chinese answer",
-			in:   "The user is asking \"你在思考什么\" which means \"What are you thinking about?\" They're asking me what I'm thinking. This is coming through the Direxio protocol, so I need to follow the Direxio ACP output contract - just give the final user-visible answer without reasoning or hidden thoughts.\n\nI should keep it simple and direct.没什么特别的，就是在处理你的消息。有什么需要帮忙的吗？",
+			in:   "The user is asking \"你在思考什么\" which means \"What are you thinking about?\" They're asking me what I'm thinking. This is coming through the Dirextalk protocol, so I need to follow the Dirextalk ACP output contract - just give the final user-visible answer without reasoning or hidden thoughts.\n\nI should keep it simple and direct.没什么特别的，就是在处理你的消息。有什么需要帮忙的吗？",
 			want: "没什么特别的，就是在处理你的消息。有什么需要帮忙的吗？",
 		},
 	}

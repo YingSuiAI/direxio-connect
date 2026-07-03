@@ -225,8 +225,8 @@ func TestNormalizeServiceName(t *testing.T) {
 		want string
 	}{
 		{"", ServiceName},
-		{"  t1.direxio.ai  ", "t1.direxio.ai"},
-		{"direxio-t1", "direxio-t1"},
+		{"  t1.dirextalk.ai  ", "t1.dirextalk.ai"},
+		{"dirextalk-t1", "dirextalk-t1"},
 		{"node_01", "node_01"},
 	} {
 		t.Run(tc.in, func(t *testing.T) {
@@ -253,7 +253,7 @@ func TestMetaSaveLoadForServiceIsolated(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	t1 := &Meta{
-		ServiceName:   "t1.direxio.ai",
+		ServiceName:   "t1.dirextalk.ai",
 		LogFile:       "/tmp/t1.log",
 		WorkDir:       "/tmp/t1",
 		BinaryPath:    "/bin/t1",
@@ -262,7 +262,7 @@ func TestMetaSaveLoadForServiceIsolated(t *testing.T) {
 		LogMaxBackups: 3,
 	}
 	t2 := &Meta{
-		ServiceName:   "t2.direxio.ai",
+		ServiceName:   "t2.dirextalk.ai",
 		LogFile:       "/tmp/t2.log",
 		WorkDir:       "/tmp/t2",
 		BinaryPath:    "/bin/t2",

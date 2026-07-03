@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 func TestConfiguredModels_BoundaryConditions(t *testing.T) {
@@ -85,8 +85,8 @@ func TestWorkspaceAgentOptions_PreservesStdIOAppServerURL(t *testing.T) {
 	}
 }
 
-func TestNew_PrefersDirexioCodexCommandEnv(t *testing.T) {
-	t.Setenv("DIREXIO_CODEX_COMMAND", "go")
+func TestNew_PrefersDirextalkCodexCommandEnv(t *testing.T) {
+	t.Setenv("DIREXTALK_CODEX_COMMAND", "go")
 
 	agent, err := New(map[string]any{
 		"work_dir": t.TempDir(),

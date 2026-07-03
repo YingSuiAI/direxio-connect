@@ -84,28 +84,28 @@ func TestWindowsTaskActionRunsHidden(t *testing.T) {
 }
 
 func TestWindowsCustomServiceNameUsesDistinctTaskAndScript(t *testing.T) {
-	if got := windowsTaskNameForService("t1.direxio.ai"); got != "cc-connect-t1.direxio.ai" {
-		t.Fatalf("windowsTaskNameForService() = %q, want cc-connect-t1.direxio.ai", got)
+	if got := windowsTaskNameForService("t1.dirextalk.ai"); got != "cc-connect-t1.dirextalk.ai" {
+		t.Fatalf("windowsTaskNameForService() = %q, want cc-connect-t1.dirextalk.ai", got)
 	}
 	if got := windowsTaskNameForService(""); got != "cc-connect" {
 		t.Fatalf("default task name = %q, want cc-connect", got)
 	}
 
-	customScript := windowsTaskScriptPath("t1.direxio.ai")
+	customScript := windowsTaskScriptPath("t1.dirextalk.ai")
 	defaultScript := windowsTaskScriptPath()
 	if customScript == defaultScript {
 		t.Fatal("custom service must not share default task script path")
 	}
-	if !strings.HasSuffix(customScript, "cc-connect-daemon-t1.direxio.ai.ps1") {
+	if !strings.HasSuffix(customScript, "cc-connect-daemon-t1.dirextalk.ai.ps1") {
 		t.Fatalf("custom script path = %q", customScript)
 	}
 
-	customLauncher := windowsTaskLauncherPath("t1.direxio.ai")
+	customLauncher := windowsTaskLauncherPath("t1.dirextalk.ai")
 	defaultLauncher := windowsTaskLauncherPath()
 	if customLauncher == defaultLauncher {
 		t.Fatal("custom service must not share default task launcher path")
 	}
-	if !strings.HasSuffix(customLauncher, "cc-connect-daemon-t1.direxio.ai.vbs") {
+	if !strings.HasSuffix(customLauncher, "cc-connect-daemon-t1.dirextalk.ai.vbs") {
 		t.Fatalf("custom launcher path = %q", customLauncher)
 	}
 }
@@ -286,19 +286,19 @@ func TestStopWindowsChildProcessUsesServicePidFile(t *testing.T) {
 		return "", nil
 	}
 
-	if err := SaveMetaForService("q1.direxio.ai", &Meta{
-		ServiceName: "q1.direxio.ai",
-		LogFile:     `C:\Users\me\.cc-connect\logs\q1.direxio.ai.log`,
+	if err := SaveMetaForService("q1.dirextalk.ai", &Meta{
+		ServiceName: "q1.dirextalk.ai",
+		LogFile:     `C:\Users\me\.cc-connect\logs\q1.dirextalk.ai.log`,
 	}); err != nil {
 		t.Fatalf("SaveMetaForService: %v", err)
 	}
 
-	if err := stopWindowsChildProcess("q1.direxio.ai"); err != nil {
+	if err := stopWindowsChildProcess("q1.dirextalk.ai"); err != nil {
 		t.Fatalf("stopWindowsChildProcess: %v", err)
 	}
 
 	for _, want := range []string{
-		`$pidPath = 'C:\Users\me\.cc-connect\logs\q1.direxio.ai.log.pid'`,
+		`$pidPath = 'C:\Users\me\.cc-connect\logs\q1.dirextalk.ai.log.pid'`,
 		`Get-Content -LiteralPath $pidPath`,
 		`$pidValue = [int]$pidText`,
 		`Stop-Process -Id $pidValue -Force -ErrorAction SilentlyContinue`,
@@ -322,13 +322,13 @@ func TestStopWindowsWrapperProcessesKillsLegacyPowerShellAndLauncher(t *testing.
 		return "", nil
 	}
 
-	if err := stopWindowsWrapperProcesses("q1.direxio.ai"); err != nil {
+	if err := stopWindowsWrapperProcesses("q1.dirextalk.ai"); err != nil {
 		t.Fatalf("stopWindowsWrapperProcesses: %v", err)
 	}
 
 	for _, want := range []string{
-		`cc-connect-daemon-q1.direxio.ai.ps1`,
-		`cc-connect-daemon-q1.direxio.ai.vbs`,
+		`cc-connect-daemon-q1.dirextalk.ai.ps1`,
+		`cc-connect-daemon-q1.dirextalk.ai.vbs`,
 		`$_.ProcessId -ne $currentPid`,
 		`$_.Name -ieq 'powershell.exe'`,
 		`$_.Name -ieq 'wscript.exe'`,

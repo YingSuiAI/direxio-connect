@@ -92,7 +92,7 @@ func runRelaySend(args []string) {
 
 	sockPath := resolveSocketPath(dataDir)
 	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Error: direxio-connect is not running (socket not found: %s)\n", sockPath)
+		fmt.Fprintf(os.Stderr, "Error: dirextalk-connect is not running (socket not found: %s)\n", sockPath)
 		os.Exit(1)
 	}
 
@@ -127,16 +127,16 @@ func runRelaySend(args []string) {
 }
 
 func printRelayUsage() {
-	fmt.Println(`Usage: direxio-connect relay <command> [options]
+	fmt.Println(`Usage: dirextalk-connect relay <command> [options]
 
 Commands:
   send      Send a message to another bot via relay
 
-Run 'direxio-connect relay <command> --help' for details.`)
+Run 'dirextalk-connect relay <command> --help' for details.`)
 }
 
 func printRelaySendUsage() {
-	fmt.Println(`Usage: direxio-connect relay send [options] [<target_project> <message>]
+	fmt.Println(`Usage: dirextalk-connect relay send [options] [<target_project> <message>]
 
 Send a message to another bot and wait for the response.
 
@@ -145,10 +145,10 @@ Options:
   -t, --to <project>         Target bot project name
   -s, --session-key <key>    Session key (auto-detected from CC_SESSION_KEY env)
   -m, --message <text>       Message to send
-      --data-dir <path>      Data directory (default: ~/.direxio-connect)
+      --data-dir <path>      Data directory (default: ~/.dirextalk-connect)
   -h, --help                 Show this help
 
 Examples:
-  direxio-connect relay send --to claude-bot "What's the weather today?"
-  direxio-connect relay send claude-bot What is the weather today`)
+  dirextalk-connect relay send --to claude-bot "What's the weather today?"
+  dirextalk-connect relay send claude-bot What is the weather today`)
 }

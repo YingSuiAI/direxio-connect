@@ -17,7 +17,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/YingSuiAI/direxio-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 func init() {
@@ -134,7 +134,7 @@ func normalizeAppServerURL(raw string) string {
 }
 
 func defaultCodexCommand() string {
-	for _, key := range []string{"DIREXIO_CODEX_COMMAND", "DIREXIO_CC_CONNECT_AGENT_CMD"} {
+	for _, key := range []string{"DIREXTALK_CODEX_COMMAND", "DIREXTALK_CC_CONNECT_AGENT_CMD"} {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 			return value
 		}
@@ -640,7 +640,7 @@ func (a *Agent) SkillDirs() []string {
 
 // CompressCommand returns "" because Codex native slash commands (/compact, /clear)
 // are not reliably executed in exec/resume mode — they may be treated as plain text.
-// See: https://github.com/YingSuiAI/direxio-connect/issues/378
+// See: https://github.com/YingSuiAI/dirextalk-connect/issues/378
 func (a *Agent) CompressCommand() string { return "" }
 
 func codexSkillDirs(workDir, explicitCodexHome string) []string {

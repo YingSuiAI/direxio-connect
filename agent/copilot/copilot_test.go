@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 func TestNew_MissingBinary(t *testing.T) {

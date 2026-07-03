@@ -213,7 +213,7 @@ func (hm *HookManager) executeHTTP(h *HookConfig, event HookEvent) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "direxio-connect-Hooks/1.0")
+	req.Header.Set("User-Agent", "dirextalk-connect-Hooks/1.0")
 	req.Header.Set("X-Hook-Event", string(event.Event))
 
 	resp, err := hm.client.Do(req)

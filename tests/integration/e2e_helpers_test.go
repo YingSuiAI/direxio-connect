@@ -5,8 +5,8 @@ package integration
 import (
 	"strings"
 
-	"github.com/YingSuiAI/direxio-connect/config"
-	"github.com/YingSuiAI/direxio-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/config"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 func joinMsgContent(msgs []mockMessage) string {

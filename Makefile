@@ -1,5 +1,5 @@
-APP        := direxio-connect
-MODULE     := github.com/YingSuiAI/direxio-connect
+APP        := dirextalk-connect
+MODULE     := github.com/YingSuiAI/dirextalk-connect
 CMD        := ./cmd/cc-connect
 DIST       := dist
 
@@ -23,7 +23,7 @@ PLATFORMS := \
 # ---------------------------------------------------------------------------
 # Selective compilation via build tags.
 #
-# By default all supported agents and the Direxio Matrix platform are included.
+# By default all supported agents and the Dirextalk Matrix platform are included.
 # To build with only specific agents, set AGENTS:
 #
 #   make build AGENTS=claudecode

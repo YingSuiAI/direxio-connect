@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-connect/core"
-	bbplatform "github.com/YingSuiAI/direxio-connect/tests/blackbox/platform"
+	"github.com/YingSuiAI/dirextalk-connect/core"
+	bbplatform "github.com/YingSuiAI/dirextalk-connect/tests/blackbox/platform"
 )
 
 const (

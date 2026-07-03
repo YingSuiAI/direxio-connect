@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/YingSuiAI/direxio-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 // toolInputCacheMaxEntries caps toolInputByID growth; beyond this we evict

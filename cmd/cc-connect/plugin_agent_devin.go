@@ -2,4 +2,4 @@
 
 package main
 
-import _ "github.com/YingSuiAI/direxio-connect/agent/devin"
+import _ "github.com/YingSuiAI/dirextalk-connect/agent/devin"

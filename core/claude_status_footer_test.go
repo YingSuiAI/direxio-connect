@@ -260,8 +260,8 @@ func TestCompactReplyFooterPath_HomeRelativeDeepPathStaysFull(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
 
-	shortPath := filepath.Join(homeDir, "codes", "direxio-connect")
-	if got, want := compactReplyFooterPath(shortPath), "~/codes/direxio-connect"; got != want {
+	shortPath := filepath.Join(homeDir, "codes", "dirextalk-connect")
+	if got, want := compactReplyFooterPath(shortPath), "~/codes/dirextalk-connect"; got != want {
 		t.Fatalf("short home path = %q, want %q", got, want)
 	}
 

@@ -17,8 +17,8 @@ import (
 	"syscall"
 )
 
-const hermesACPOutputContract = `DIREXIO ACP OUTPUT CONTRACT:
-Your response is sent directly to a Direxio user.
+const hermesACPOutputContract = `DIREXTALK ACP OUTPUT CONTRACT:
+Your response is sent directly to a Dirextalk user.
 Return only the final user-visible answer.
 Do not include reasoning, analysis, hidden thoughts, or restatements of the user's request.
 If the user asks for an exact short reply, output exactly that reply.
@@ -532,7 +532,7 @@ func looksLikeHermesMetaNarration(text string) bool {
 		"i will ",
 		"let me ",
 		"this is coming through ",
-		"this is a direxio ",
+		"this is a dirextalk ",
 		"用户",
 		"这个用户",
 		"该用户",
@@ -632,7 +632,7 @@ func isVisibleAnswerCandidate(text string) bool {
 	lower := strings.ToLower(text)
 	metaFragments := []string{
 		"final user-visible answer",
-		"direxio acp output contract",
+		"dirextalk acp output contract",
 		"without reasoning or hidden thoughts",
 	}
 	for _, fragment := range metaFragments {

@@ -47,7 +47,7 @@ func TestBuildPlist_KeepAliveDoesNotRestartOnCleanExit(t *testing.T) {
 
 func TestBuildPlist_CustomServiceNameUsesDistinctLaunchdLabel(t *testing.T) {
 	cfg := Config{
-		ServiceName: "t1.direxio.ai",
+		ServiceName: "t1.dirextalk.ai",
 		BinaryPath:  "/opt/cc-connect/cc-connect",
 		WorkDir:     "/tmp/wd",
 		LogFile:     "/tmp/log",
@@ -55,7 +55,7 @@ func TestBuildPlist_CustomServiceNameUsesDistinctLaunchdLabel(t *testing.T) {
 		EnvPATH:     "/usr/bin",
 	}
 	xml := buildPlist(cfg)
-	if !strings.Contains(xml, "<string>com.cc-connect.t1.direxio.ai</string>") {
+	if !strings.Contains(xml, "<string>com.cc-connect.t1.dirextalk.ai</string>") {
 		t.Fatalf("custom launchd label missing from plist:\n%s", xml)
 	}
 	if strings.Contains(xml, "<string>com.cc-connect.service</string>") {
@@ -63,16 +63,16 @@ func TestBuildPlist_CustomServiceNameUsesDistinctLaunchdLabel(t *testing.T) {
 	}
 
 	defaultPath := launchdPlistPath()
-	customPath := launchdPlistPath("t1.direxio.ai")
+	customPath := launchdPlistPath("t1.dirextalk.ai")
 	if customPath == defaultPath {
 		t.Fatal("custom service must use a distinct plist path")
 	}
-	if !strings.HasSuffix(customPath, "com.cc-connect.t1.direxio.ai.plist") {
+	if !strings.HasSuffix(customPath, "com.cc-connect.t1.dirextalk.ai.plist") {
 		t.Fatalf("custom plist path = %q", customPath)
 	}
 
-	target := launchdTarget(launchdGUIDomain(), "t1.direxio.ai")
-	if !strings.HasSuffix(target, "/com.cc-connect.t1.direxio.ai") {
+	target := launchdTarget(launchdGUIDomain(), "t1.dirextalk.ai")
+	if !strings.HasSuffix(target, "/com.cc-connect.t1.dirextalk.ai") {
 		t.Fatalf("custom target = %q", target)
 	}
 }

@@ -163,23 +163,23 @@ func TestParseDaemonInstallArgs_WorkDirOverridesConfig(t *testing.T) {
 }
 
 func TestParseDaemonInstallArgs_ServiceName(t *testing.T) {
-	cfg, _, err := parseDaemonInstallArgs([]string{"--service-name", "t1.direxio.ai"})
+	cfg, _, err := parseDaemonInstallArgs([]string{"--service-name", "t1.dirextalk.ai"})
 	if err != nil {
 		t.Fatalf("parseDaemonInstallArgs returned error: %v", err)
 	}
-	if cfg.ServiceName != "t1.direxio.ai" {
-		t.Fatalf("cfg.ServiceName = %q, want t1.direxio.ai", cfg.ServiceName)
+	if cfg.ServiceName != "t1.dirextalk.ai" {
+		t.Fatalf("cfg.ServiceName = %q, want t1.dirextalk.ai", cfg.ServiceName)
 	}
 }
 
 func TestParseDaemonServiceNameStripsGlobalFlag(t *testing.T) {
-	t.Setenv("DIREXIO_CONNECT_SERVICE_NAME", "")
-	serviceName, rest, err := parseDaemonServiceName([]string{"--service-name", "t1.direxio.ai", "--force"})
+	t.Setenv("DIREXTALK_CONNECT_SERVICE_NAME", "")
+	serviceName, rest, err := parseDaemonServiceName([]string{"--service-name", "t1.dirextalk.ai", "--force"})
 	if err != nil {
 		t.Fatalf("parseDaemonServiceName returned error: %v", err)
 	}
-	if serviceName != "t1.direxio.ai" {
-		t.Fatalf("serviceName = %q, want t1.direxio.ai", serviceName)
+	if serviceName != "t1.dirextalk.ai" {
+		t.Fatalf("serviceName = %q, want t1.dirextalk.ai", serviceName)
 	}
 	if len(rest) != 1 || rest[0] != "--force" {
 		t.Fatalf("rest = %#v, want [--force]", rest)
@@ -187,13 +187,13 @@ func TestParseDaemonServiceNameStripsGlobalFlag(t *testing.T) {
 }
 
 func TestParseDaemonServiceNameUsesEnvDefault(t *testing.T) {
-	t.Setenv("DIREXIO_CONNECT_SERVICE_NAME", "t2.direxio.ai")
+	t.Setenv("DIREXTALK_CONNECT_SERVICE_NAME", "t2.dirextalk.ai")
 	serviceName, rest, err := parseDaemonServiceName([]string{"--force"})
 	if err != nil {
 		t.Fatalf("parseDaemonServiceName returned error: %v", err)
 	}
-	if serviceName != "t2.direxio.ai" {
-		t.Fatalf("serviceName = %q, want t2.direxio.ai", serviceName)
+	if serviceName != "t2.dirextalk.ai" {
+		t.Fatalf("serviceName = %q, want t2.dirextalk.ai", serviceName)
 	}
 	if len(rest) != 1 || rest[0] != "--force" {
 		t.Fatalf("rest = %#v, want [--force]", rest)

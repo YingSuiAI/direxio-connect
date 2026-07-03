@@ -18,11 +18,11 @@ import (
 )
 
 const (
-	githubRepo   = "YingSuiAI/direxio-connect"
+	githubRepo   = "YingSuiAI/dirextalk-connect"
 	githubAPI    = "https://api.github.com/repos/" + githubRepo + "/releases/latest"
 	githubAllAPI = "https://api.github.com/repos/" + githubRepo + "/releases"
 	downloadBase = "https://github.com/" + githubRepo + "/releases/download"
-	binaryName   = "direxio-connect"
+	binaryName   = "dirextalk-connect"
 )
 
 // cachedLatestVersion 缓存最新版本信息，避免频繁请求API
@@ -83,7 +83,7 @@ func getUpdateHintIfAvailable() string {
 	}
 
 	if isNewer(cachedVer, version) {
-		return fmt.Sprintf("\n📦 Update available: %s -> %s  (run: direxio-connect update)\n", version, cachedVer)
+		return fmt.Sprintf("\n📦 Update available: %s -> %s  (run: dirextalk-connect update)\n", version, cachedVer)
 	}
 	return ""
 }
@@ -96,7 +96,7 @@ func runUpdate() {
 		}
 	}
 
-	fmt.Printf("direxio-connect %s\n", version)
+	fmt.Printf("dirextalk-connect %s\n", version)
 	if pre {
 		fmt.Println("Checking for updates (including pre-releases)...")
 	} else {
@@ -169,7 +169,7 @@ func runUpdate() {
 	syncNpmPackageVersion(execPath, strings.TrimPrefix(latest, "v"))
 
 	fmt.Printf("Updated to %s\n", latest)
-	fmt.Println("Restart direxio-connect to use the new version.")
+	fmt.Println("Restart dirextalk-connect to use the new version.")
 }
 
 // fetchRelease returns the latest release. If pre=true, includes pre-releases.
@@ -271,7 +271,7 @@ func archiveAssetName(tag string) string {
 	return base + ".tar.gz"
 }
 
-// extractBinaryFromArchive extracts the direxio-connect binary from a .tar.gz or .zip archive.
+// extractBinaryFromArchive extracts the dirextalk-connect binary from a .tar.gz or .zip archive.
 func extractBinaryFromArchive(archivePath, archiveName string) (string, error) {
 	if strings.HasSuffix(archiveName, ".zip") {
 		return extractFromZip(archivePath)
@@ -305,7 +305,7 @@ func extractFromTarGz(archivePath string) (string, error) {
 			continue
 		}
 		if strings.HasPrefix(hdr.Name, binaryName) {
-			tmp, err := os.CreateTemp("", "direxio-connect-update-*")
+			tmp, err := os.CreateTemp("", "dirextalk-connect-update-*")
 			if err != nil {
 				return "", err
 			}
@@ -336,7 +336,7 @@ func extractFromZip(archivePath string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		tmp, err := os.CreateTemp("", "direxio-connect-update-*")
+		tmp, err := os.CreateTemp("", "dirextalk-connect-update-*")
 		if err != nil {
 			rc.Close()
 			return "", err
@@ -375,7 +375,7 @@ func downloadToTemp(url string) (string, error) {
 		return "", fmt.Errorf("download returned HTTP %d", resp.StatusCode)
 	}
 
-	tmp, err := os.CreateTemp("", "direxio-connect-update-*")
+	tmp, err := os.CreateTemp("", "dirextalk-connect-update-*")
 	if err != nil {
 		return "", err
 	}
@@ -454,9 +454,9 @@ func checkUpdate() {
 		return
 	}
 	if isNewer(release.TagName, version) {
-		hint := "direxio-connect update"
+		hint := "dirextalk-connect update"
 		if release.Prerelease {
-			hint = "direxio-connect update --pre"
+			hint = "dirextalk-connect update --pre"
 		}
 		fmt.Fprintf(os.Stderr, "Update available: %s -> %s (run: %s)\n", version, release.TagName, hint)
 	}
@@ -560,7 +560,7 @@ func comparePreRelease(a, b string) int {
 }
 
 // syncNpmPackageVersion detects if the binary lives inside an npm package
-// (node_modules/direxio-connent/bin/) and updates the package.json version to
+// (node_modules/dirextalk/bin/) and updates the package.json version to
 // match the newly installed binary. Without this, the npm wrapper's run.js
 // would see a version mismatch and re-download the old version on next run.
 func syncNpmPackageVersion(execPath, newVer string) {
@@ -582,7 +582,7 @@ func syncNpmPackageVersion(execPath, newVer string) {
 	}
 
 	name, _ := pkg["name"].(string)
-	if name != "direxio-connent" {
+	if name != "dirextalk" {
 		return
 	}
 
@@ -604,7 +604,7 @@ func syncNpmPackageVersion(execPath, newVer string) {
 	if err := os.WriteFile(pkgJSON, out, 0o644); err != nil {
 		slog.Warn("update: failed to sync npm package.json version", "error", err)
 		fmt.Println("⚠️  Note: npm package version not synced. If the next run re-downloads an old version,")
-		fmt.Println("   please run: npm update -g direxio-connent")
+		fmt.Println("   please run: npm update -g dirextalk")
 	} else {
 		slog.Debug("update: synced npm package.json version", "old", oldVer, "new", newVer)
 	}

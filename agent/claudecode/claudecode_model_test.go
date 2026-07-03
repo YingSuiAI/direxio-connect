@@ -3,7 +3,7 @@ package claudecode
 import (
 	"testing"
 
-	"github.com/YingSuiAI/direxio-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 func TestConfiguredModels_BoundaryConditions(t *testing.T) {

@@ -8,7 +8,7 @@ const fs = require("fs");
 
 const PACKAGE = require("./package.json");
 const EXPECTED_VER = PACKAGE.version; // e.g. "1.1.0-beta.4"
-const NAME = "direxio-connect";
+const NAME = "dirextalk-connect";
 const binDir = path.join(__dirname, "bin");
 const ext = process.platform === "win32" ? ".exe" : "";
 const binaryPath = path.join(binDir, NAME + ext);
@@ -58,14 +58,14 @@ function needsReinstall() {
 }
 
 if (needsReinstall()) {
-  console.log(`[direxio-connect] Binary missing or outdated, installing v${EXPECTED_VER}...`);
+  console.log(`[dirextalk-connect] Binary missing or outdated, installing v${EXPECTED_VER}...`);
   try {
     execSync("node " + JSON.stringify(path.join(__dirname, "install.js")), {
       stdio: "inherit",
       cwd: __dirname,
     });
   } catch {
-    console.error("[direxio-connect] Auto-install failed. Run manually: npm uninstall -g direxio-connent && npm install -g direxio-connent");
+    console.error("[dirextalk-connect] Auto-install failed. Run manually: npm uninstall -g dirextalk && npm install -g dirextalk");
     process.exit(1);
   }
 }

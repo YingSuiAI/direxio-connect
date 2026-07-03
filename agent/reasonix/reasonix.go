@@ -14,7 +14,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/YingSuiAI/direxio-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 func init() {

@@ -42,7 +42,7 @@ func parseObservationLine(line []byte) *observation {
 		return nil
 	}
 
-	// Skip direxio-connect's own sessions
+	// Skip dirextalk-connect's own sessions
 	if ep, _ := raw["entrypoint"].(string); ep == "sdk-cli" {
 		return nil
 	}

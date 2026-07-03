@@ -10,8 +10,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/YingSuiAI/direxio-connect/config"
-	"github.com/YingSuiAI/direxio-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/config"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 	_ "modernc.org/sqlite"
 )
 
@@ -44,7 +44,7 @@ func runProviderCommand(args []string) {
 }
 
 func printProviderUsage() {
-	fmt.Println(`Usage: direxio-connect provider <command> [options]
+	fmt.Println(`Usage: dirextalk-connect provider <command> [options]
 
 Commands:
   add      Add a new API provider to a project
@@ -55,14 +55,14 @@ Commands:
   global   Manage global shared providers
 
 Examples:
-  direxio-connect provider add --project my-backend --name relay --api-key sk-xxx
-  direxio-connect provider add --project my-backend --name bedrock --env CLAUDE_CODE_USE_BEDROCK=1,AWS_PROFILE=bedrock
-  direxio-connect provider list --project my-backend
-  direxio-connect provider remove --project my-backend --name relay
-  direxio-connect provider import --project my-backend
-  direxio-connect provider presets
-  direxio-connect provider global list
-  direxio-connect provider global add --name minimaxi --api-key sk-xxx --base-url https://api.minimaxi.chat/v1`)
+  dirextalk-connect provider add --project my-backend --name relay --api-key sk-xxx
+  dirextalk-connect provider add --project my-backend --name bedrock --env CLAUDE_CODE_USE_BEDROCK=1,AWS_PROFILE=bedrock
+  dirextalk-connect provider list --project my-backend
+  dirextalk-connect provider remove --project my-backend --name relay
+  dirextalk-connect provider import --project my-backend
+  dirextalk-connect provider presets
+  dirextalk-connect provider global list
+  dirextalk-connect provider global add --name minimaxi --api-key sk-xxx --base-url https://api.minimaxi.chat/v1`)
 }
 
 // initConfigPath resolves the config path and sets config.ConfigPath.
@@ -582,7 +582,7 @@ func runProviderPresets(args []string) {
 
 func runProviderGlobal(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, `Usage: direxio-connect provider global <command>
+		fmt.Fprintln(os.Stderr, `Usage: dirextalk-connect provider global <command>
 
 Commands:
   list     List global providers
@@ -618,7 +618,7 @@ func runGlobalProviderList(args []string) {
 	}
 	if len(providers) == 0 {
 		fmt.Println("No global providers configured.")
-		fmt.Println("\nAdd one with: direxio-connect provider global add --name <name> --api-key <key>")
+		fmt.Println("\nAdd one with: dirextalk-connect provider global add --name <name> --api-key <key>")
 		return
 	}
 

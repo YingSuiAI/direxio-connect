@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YingSuiAI/direxio-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/event"
@@ -59,7 +59,7 @@ type Platform struct {
 }
 
 const (
-	agentRoomStatusEventType = "io.direxio.agent.status"
+	agentRoomStatusEventType = "io.dirextalk.agent.status"
 	initialBackoff           = 2 * time.Second
 	maxBackoff               = 60 * time.Second
 	stableWindow             = 10 * time.Second

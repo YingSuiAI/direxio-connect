@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 // skipUnlessBinaryAvailable skips if the agent binary is not in PATH.

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YingSuiAI/direxio-connect/config"
-	"github.com/YingSuiAI/direxio-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/config"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 // runRunAsUserStartupChecks runs preflight gates + isolation audit for

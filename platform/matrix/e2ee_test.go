@@ -17,7 +17,7 @@ func TestTryInitCryptoUsesPureGoSQLite(t *testing.T) {
 	ctx := context.Background()
 	server := mockserver.Create(t)
 	userID := id.UserID("@agent:example.test")
-	deviceID := id.DeviceID("DIREXIO_TEST")
+	deviceID := id.DeviceID("DIREXTALK_TEST")
 	client, _ := server.Login(t, ctx, userID, deviceID)
 
 	delete(server.DeviceKeys[userID], deviceID)
@@ -48,15 +48,15 @@ func TestCryptoDatabaseURIWindowsPath(t *testing.T) {
 }
 
 func TestCryptoDatabaseURIPosixPath(t *testing.T) {
-	got := cryptoDatabaseURI("/var/lib/direxio/crypto.db")
-	if !strings.HasPrefix(got, "file:///var/lib/direxio/crypto.db?") {
+	got := cryptoDatabaseURI("/var/lib/dirextalk/crypto.db")
+	if !strings.HasPrefix(got, "file:///var/lib/dirextalk/crypto.db?") {
 		t.Fatalf("cryptoDatabaseURI() = %q", got)
 	}
 }
 
 func TestCryptoDatabaseURIUNCPath(t *testing.T) {
-	got := cryptoDatabaseURI(`\\fileserver\direxio\crypto.db`)
-	if !strings.HasPrefix(got, "file://fileserver/direxio/crypto.db?") {
+	got := cryptoDatabaseURI(`\\fileserver\dirextalk\crypto.db`)
+	if !strings.HasPrefix(got, "file://fileserver/dirextalk/crypto.db?") {
 		t.Fatalf("cryptoDatabaseURI() = %q", got)
 	}
 }

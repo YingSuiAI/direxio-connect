@@ -19,7 +19,7 @@ const (
 
 // I18n provides internationalized messages.
 //
-// All exported methods are safe to call from multiple goroutines: direxio-connect
+// All exported methods are safe to call from multiple goroutines: dirextalk-connect
 // fans out platform message handlers concurrently, all of which can call
 // DetectAndSet (writes `detected`) and T / CurrentLang (read `lang`/`detected`)
 // at the same time. Without the mutex `go test -race` flags real data races
@@ -956,18 +956,18 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "🌐 Idioma actual: **%s**\n\nUso: /lang <en|zh|zh-TW|ja|es|auto>",
 	},
 	MsgUnknownCommand: {
-		LangEnglish:            "`%s` is not a direxio-connect command, forwarding to agent...",
-		LangChinese:            "`%s` 不是 direxio-connect 命令，已转发给 Agent 处理...",
-		LangTraditionalChinese: "`%s` 不是 direxio-connect 命令，已轉發給 Agent 處理...",
-		LangJapanese:           "`%s` は direxio-connect のコマンドではありません。エージェントに転送します...",
-		LangSpanish:            "`%s` no es un comando de direxio-connect, reenviando al agente...",
+		LangEnglish:            "`%s` is not a dirextalk-connect command, forwarding to agent...",
+		LangChinese:            "`%s` 不是 dirextalk-connect 命令，已转发给 Agent 处理...",
+		LangTraditionalChinese: "`%s` 不是 dirextalk-connect 命令，已轉發給 Agent 處理...",
+		LangJapanese:           "`%s` は dirextalk-connect のコマンドではありません。エージェントに転送します...",
+		LangSpanish:            "`%s` no es un comando de dirextalk-connect, reenviando al agente...",
 	},
 	MsgWelcome: {
-		LangEnglish:            "👋 Hi! I'm direxio-connect, bridging you to **%s**.\n\nJust send a message to chat with the agent. Type /help to see built-in commands.",
-		LangChinese:            "👋 你好！我是 direxio-connect，已为你连接到 **%s**。\n\n直接发送消息即可与 Agent 对话。输入 /help 查看内置命令。",
-		LangTraditionalChinese: "👋 你好！我是 direxio-connect，已為你連接到 **%s**。\n\n直接發送訊息即可與 Agent 對話。輸入 /help 查看內建命令。",
-		LangJapanese:           "👋 こんにちは！direxio-connect が **%s** に接続しました。\n\nメッセージを送信すればエージェントと会話できます。/help で組み込みコマンド一覧を確認できます。",
-		LangSpanish:            "👋 ¡Hola! Soy direxio-connect, conectándote con **%s**.\n\nEnvía un mensaje para chatear con el agente. Usa /help para ver los comandos integrados.",
+		LangEnglish:            "👋 Hi! I'm dirextalk-connect, bridging you to **%s**.\n\nJust send a message to chat with the agent. Type /help to see built-in commands.",
+		LangChinese:            "👋 你好！我是 dirextalk-connect，已为你连接到 **%s**。\n\n直接发送消息即可与 Agent 对话。输入 /help 查看内置命令。",
+		LangTraditionalChinese: "👋 你好！我是 dirextalk-connect，已為你連接到 **%s**。\n\n直接發送訊息即可與 Agent 對話。輸入 /help 查看內建命令。",
+		LangJapanese:           "👋 こんにちは！dirextalk-connect が **%s** に接続しました。\n\nメッセージを送信すればエージェントと会話できます。/help で組み込みコマンド一覧を確認できます。",
+		LangSpanish:            "👋 ¡Hola! Soy dirextalk-connect, conectándote con **%s**.\n\nEnvía un mensaje para chatear con el agente. Usa /help para ver los comandos integrados.",
 	},
 	MsgHelp: {
 		LangEnglish: "📖 Available Commands\n\n" +
@@ -1004,9 +1004,9 @@ var messages = map[MsgKey]map[Language]string{
 			"/doctor\n  Run system diagnostics\n\n" +
 			"/usage\n  Show account/model quota usage\n\n" +
 			"/upgrade\n  Check for updates and self-update\n\n" +
-			"/restart\n  Restart direxio-connect service\n\n" +
+			"/restart\n  Restart dirextalk-connect service\n\n" +
 			"/status\n  Show system status\n\n" +
-			"/version\n  Show direxio-connect version\n\n" +
+			"/version\n  Show dirextalk-connect version\n\n" +
 			"/whoami\n  Show your User ID (for allow_from / admin_from)\n\n" +
 			"/help\n  Show this help\n\n" +
 			"Tip: Commands support prefix matching, e.g. `/pro l` = `/provider list`, `/sw 2` = `/switch 2`.\n\n" +
@@ -1048,9 +1048,9 @@ var messages = map[MsgKey]map[Language]string{
 			"/doctor\n  运行系统诊断\n\n" +
 			"/usage\n  查看账号/模型限额使用情况\n\n" +
 			"/upgrade\n  检查更新并自动升级\n\n" +
-			"/restart\n  重启 direxio-connect 服务\n\n" +
+			"/restart\n  重启 dirextalk-connect 服务\n\n" +
 			"/status\n  查看系统状态\n\n" +
-			"/version\n  查看 direxio-connect 版本\n\n" +
+			"/version\n  查看 dirextalk-connect 版本\n\n" +
 			"/whoami\n  查看你的 User ID（用于 allow_from / admin_from 配置）\n\n" +
 			"/help\n  显示此帮助\n\n" +
 			"提示：命令支持前缀匹配，如 `/pro l` = `/provider list`，`/sw 2` = `/switch 2`。\n\n" +
@@ -1091,9 +1091,9 @@ var messages = map[MsgKey]map[Language]string{
 			"/doctor\n  執行系統診斷\n\n" +
 			"/usage\n  查看帳號/模型限額使用情況\n\n" +
 			"/upgrade\n  檢查更新並自動升級\n\n" +
-			"/restart\n  重啟 direxio-connect 服務\n\n" +
+			"/restart\n  重啟 dirextalk-connect 服務\n\n" +
 			"/status\n  查看系統狀態\n\n" +
-			"/version\n  查看 direxio-connect 版本\n\n" +
+			"/version\n  查看 dirextalk-connect 版本\n\n" +
 			"/whoami\n  查看你的 User ID（用於 allow_from / admin_from 設定）\n\n" +
 			"/help\n  顯示此說明\n\n" +
 			"提示：命令支持前綴匹配，如 `/pro l` = `/provider list`，`/sw 2` = `/switch 2`。\n\n" +
@@ -1133,9 +1133,9 @@ var messages = map[MsgKey]map[Language]string{
 			"/doctor\n  システム診断を実行\n\n" +
 			"/usage\n  アカウント/モデル使用量を表示\n\n" +
 			"/upgrade\n  アップデートを確認して自動更新\n\n" +
-			"/restart\n  direxio-connect サービスを再起動\n\n" +
+			"/restart\n  dirextalk-connect サービスを再起動\n\n" +
 			"/status\n  システム状態を表示\n\n" +
-			"/version\n  direxio-connect のバージョンを表示\n\n" +
+			"/version\n  dirextalk-connect のバージョンを表示\n\n" +
 			"/whoami\n  あなたの User ID を表示（allow_from / admin_from 設定用）\n\n" +
 			"/help\n  このヘルプを表示\n\n" +
 			"ヒント：コマンドはプレフィックスマッチに対応しています。例: `/pro l` = `/provider list`、`/sw 2` = `/switch 2`。\n\n" +
@@ -1175,9 +1175,9 @@ var messages = map[MsgKey]map[Language]string{
 			"/doctor\n  Ejecutar diagnósticos del sistema\n\n" +
 			"/usage\n  Mostrar uso de cuota de cuenta/modelo\n\n" +
 			"/upgrade\n  Buscar actualizaciones y auto-actualizar\n\n" +
-			"/restart\n  Reiniciar el servicio direxio-connect\n\n" +
+			"/restart\n  Reiniciar el servicio dirextalk-connect\n\n" +
 			"/status\n  Mostrar estado del sistema\n\n" +
-			"/version\n  Mostrar versión de direxio-connect\n\n" +
+			"/version\n  Mostrar versión de dirextalk-connect\n\n" +
 			"/whoami\n  Mostrar tu User ID (para allow_from / admin_from)\n\n" +
 			"/help\n  Mostrar esta ayuda\n\n" +
 			"Consejo: Los comandos admiten coincidencia por prefijo, ej. `/pro l` = `/provider list`, `/sw 2` = `/switch 2`.\n\n" +
@@ -1187,11 +1187,11 @@ var messages = map[MsgKey]map[Language]string{
 			"Modos de permisos: default / edit / plan / yolo",
 	},
 	MsgHelpTitle: {
-		LangEnglish:            "direxio-connect Help",
-		LangChinese:            "direxio-connect 帮助",
-		LangTraditionalChinese: "direxio-connect 說明",
-		LangJapanese:           "direxio-connect ヘルプ",
-		LangSpanish:            "direxio-connect Ayuda",
+		LangEnglish:            "dirextalk-connect Help",
+		LangChinese:            "dirextalk-connect 帮助",
+		LangTraditionalChinese: "dirextalk-connect 說明",
+		LangJapanese:           "dirextalk-connect ヘルプ",
+		LangSpanish:            "dirextalk-connect Ayuda",
 	},
 	MsgHelpSessionSection: {
 		LangEnglish: "**Session Management**\n" +
@@ -1473,11 +1473,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "Este agente no soporta el cambio de proveedor.",
 	},
 	MsgProviderNone: {
-		LangEnglish:            "No provider configured. Using agent's default environment.\n\nAdd providers in `config.toml` or via `direxio-connect provider add`.",
-		LangChinese:            "未配置 Provider，使用 Agent 默认环境。\n\n可在 `config.toml` 中添加或使用 `direxio-connect provider add` 命令。",
-		LangTraditionalChinese: "未配置 Provider，使用 Agent 預設環境。\n\n可在 `config.toml` 中新增或使用 `direxio-connect provider add` 命令。",
-		LangJapanese:           "プロバイダが設定されていません。エージェントのデフォルト環境を使用します。\n\n`config.toml` または `direxio-connect provider add` でプロバイダを追加してください。",
-		LangSpanish:            "No hay proveedor configurado. Usando el entorno predeterminado del agente.\n\nAgregue proveedores en `config.toml` o mediante `direxio-connect provider add`.",
+		LangEnglish:            "No provider configured. Using agent's default environment.\n\nAdd providers in `config.toml` or via `dirextalk-connect provider add`.",
+		LangChinese:            "未配置 Provider，使用 Agent 默认环境。\n\n可在 `config.toml` 中添加或使用 `dirextalk-connect provider add` 命令。",
+		LangTraditionalChinese: "未配置 Provider，使用 Agent 預設環境。\n\n可在 `config.toml` 中新增或使用 `dirextalk-connect provider add` 命令。",
+		LangJapanese:           "プロバイダが設定されていません。エージェントのデフォルト環境を使用します。\n\n`config.toml` または `dirextalk-connect provider add` でプロバイダを追加してください。",
+		LangSpanish:            "No hay proveedor configurado. Usando el entorno predeterminado del agente.\n\nAgregue proveedores en `config.toml` o mediante `dirextalk-connect provider add`.",
 	},
 	MsgProviderCurrent: {
 		LangEnglish:            "📡 Active provider: **%s**\n\nUse `/provider list` to see all, `/provider switch <name>` to switch.",
@@ -1494,11 +1494,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "📡 Proveedores\n\n",
 	},
 	MsgProviderListEmpty: {
-		LangEnglish:            "No providers configured.\n\nAdd providers in `config.toml` or via `direxio-connect provider add`.",
-		LangChinese:            "未配置 Provider。\n\n可在 `config.toml` 中添加或使用 `direxio-connect provider add` 命令。",
-		LangTraditionalChinese: "未配置 Provider。\n\n可在 `config.toml` 中新增或使用 `direxio-connect provider add` 命令。",
-		LangJapanese:           "プロバイダが設定されていません。\n\n`config.toml` または `direxio-connect provider add` で追加してください。",
-		LangSpanish:            "No hay proveedores configurados.\n\nAgregue proveedores en `config.toml` o mediante `direxio-connect provider add`.",
+		LangEnglish:            "No providers configured.\n\nAdd providers in `config.toml` or via `dirextalk-connect provider add`.",
+		LangChinese:            "未配置 Provider。\n\n可在 `config.toml` 中添加或使用 `dirextalk-connect provider add` 命令。",
+		LangTraditionalChinese: "未配置 Provider。\n\n可在 `config.toml` 中新增或使用 `dirextalk-connect provider add` 命令。",
+		LangJapanese:           "プロバイダが設定されていません。\n\n`config.toml` または `dirextalk-connect provider add` で追加してください。",
+		LangSpanish:            "No hay proveedores configurados.\n\nAgregue proveedores en `config.toml` o mediante `dirextalk-connect provider add`.",
 	},
 	MsgProviderSwitchHint: {
 		LangEnglish:            "`/provider switch <name>` to switch | `/provider clear` to reset",
@@ -1799,11 +1799,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "El programador de tareas no está disponible.",
 	},
 	MsgCronUsage: {
-		LangEnglish:            "Usage:\n/cron add <min> <hour> <day> <month> <weekday> <prompt>\n/cron list\n/cron exec <id>\n/cron del <id>\n/cron enable <id> · /cron disable <id>\n/cron mute <id> · /cron unmute <id>\n/cron setup — write direxio-connect instructions to agent memory file",
-		LangChinese:            "用法：\n/cron add <分> <时> <日> <月> <周> <任务描述>\n/cron list\n/cron exec <id> 立即执行\n/cron del <id>\n/cron enable <id> · /cron disable <id>\n/cron mute <id> · /cron unmute <id> 静音/取消静音\n/cron setup — 将 direxio-connect 指令写入 agent 记忆文件",
-		LangTraditionalChinese: "用法：\n/cron add <分> <時> <日> <月> <週> <任務描述>\n/cron list\n/cron exec <id> 立即執行\n/cron del <id>\n/cron enable <id> · /cron disable <id>\n/cron mute <id> · /cron unmute <id> 靜音/取消靜音\n/cron setup — 將 direxio-connect 指令寫入 agent 記憶檔案",
-		LangJapanese:           "使い方:\n/cron add <分> <時> <日> <月> <曜日> <タスク内容>\n/cron list\n/cron exec <id> 今すぐ実行\n/cron del <id>\n/cron enable <id> · /cron disable <id>\n/cron mute <id> · /cron unmute <id> ミュート/解除\n/cron setup — direxio-connect の指示をエージェントのメモリファイルに書き込む",
-		LangSpanish:            "Uso:\n/cron add <min> <hora> <día> <mes> <día_semana> <tarea>\n/cron list\n/cron exec <id>\n/cron del <id>\n/cron enable <id> · /cron disable <id>\n/cron mute <id> · /cron unmute <id>\n/cron setup — escribir las instrucciones de direxio-connect en el archivo de memoria del agente",
+		LangEnglish:            "Usage:\n/cron add <min> <hour> <day> <month> <weekday> <prompt>\n/cron list\n/cron exec <id>\n/cron del <id>\n/cron enable <id> · /cron disable <id>\n/cron mute <id> · /cron unmute <id>\n/cron setup — write dirextalk-connect instructions to agent memory file",
+		LangChinese:            "用法：\n/cron add <分> <时> <日> <月> <周> <任务描述>\n/cron list\n/cron exec <id> 立即执行\n/cron del <id>\n/cron enable <id> · /cron disable <id>\n/cron mute <id> · /cron unmute <id> 静音/取消静音\n/cron setup — 将 dirextalk-connect 指令写入 agent 记忆文件",
+		LangTraditionalChinese: "用法：\n/cron add <分> <時> <日> <月> <週> <任務描述>\n/cron list\n/cron exec <id> 立即執行\n/cron del <id>\n/cron enable <id> · /cron disable <id>\n/cron mute <id> · /cron unmute <id> 靜音/取消靜音\n/cron setup — 將 dirextalk-connect 指令寫入 agent 記憶檔案",
+		LangJapanese:           "使い方:\n/cron add <分> <時> <日> <月> <曜日> <タスク内容>\n/cron list\n/cron exec <id> 今すぐ実行\n/cron del <id>\n/cron enable <id> · /cron disable <id>\n/cron mute <id> · /cron unmute <id> ミュート/解除\n/cron setup — dirextalk-connect の指示をエージェントのメモリファイルに書き込む",
+		LangSpanish:            "Uso:\n/cron add <min> <hora> <día> <mes> <día_semana> <tarea>\n/cron list\n/cron exec <id>\n/cron del <id>\n/cron enable <id> · /cron disable <id>\n/cron mute <id> · /cron unmute <id>\n/cron setup — escribir las instrucciones de dirextalk-connect en el archivo de memoria del agente",
 	},
 	MsgCronAddUsage: {
 		LangEnglish:            "Usage: /cron add <min> <hour> <day> <month> <weekday> <prompt>\nExample: /cron add 0 6 * * * Collect GitHub trending data and send me a summary",
@@ -2140,7 +2140,7 @@ var messages = map[MsgKey]map[Language]string{
 	},
 
 	MsgStatusTitle: {
-		LangEnglish: "direxio-connect Status\n\n" +
+		LangEnglish: "dirextalk-connect Status\n\n" +
 			"Project: %s\n" +
 			"Agent: %s\n" +
 			"Work Dir: %s\n" +
@@ -2148,7 +2148,7 @@ var messages = map[MsgKey]map[Language]string{
 			"Uptime: %s\n" +
 			"Language: %s\n" +
 			"%s" + "%s" + "%s" + "%s" + "%s" + "%s",
-		LangChinese: "direxio-connect 状态\n\n" +
+		LangChinese: "dirextalk-connect 状态\n\n" +
 			"项目: %s\n" +
 			"Agent: %s\n" +
 			"工作目录: %s\n" +
@@ -2156,7 +2156,7 @@ var messages = map[MsgKey]map[Language]string{
 			"运行时间: %s\n" +
 			"语言: %s\n" +
 			"%s" + "%s" + "%s" + "%s" + "%s" + "%s",
-		LangTraditionalChinese: "direxio-connect 狀態\n\n" +
+		LangTraditionalChinese: "dirextalk-connect 狀態\n\n" +
 			"項目: %s\n" +
 			"Agent: %s\n" +
 			"工作目錄: %s\n" +
@@ -2164,7 +2164,7 @@ var messages = map[MsgKey]map[Language]string{
 			"運行時間: %s\n" +
 			"語言: %s\n" +
 			"%s" + "%s" + "%s" + "%s" + "%s" + "%s",
-		LangJapanese: "direxio-connect ステータス\n\n" +
+		LangJapanese: "dirextalk-connect ステータス\n\n" +
 			"プロジェクト: %s\n" +
 			"エージェント: %s\n" +
 			"作業ディレクトリ: %s\n" +
@@ -2172,7 +2172,7 @@ var messages = map[MsgKey]map[Language]string{
 			"稼働時間: %s\n" +
 			"言語: %s\n" +
 			"%s" + "%s" + "%s" + "%s" + "%s" + "%s",
-		LangSpanish: "Estado de direxio-connect\n\n" +
+		LangSpanish: "Estado de dirextalk-connect\n\n" +
 			"Proyecto: %s\n" +
 			"Agente: %s\n" +
 			"Directorio: %s\n" +
@@ -2527,8 +2527,8 @@ var messages = map[MsgKey]map[Language]string{
 		LangJapanese: "次へ →", LangSpanish: "Siguiente →",
 	},
 	MsgCardTitleStatus: {
-		LangEnglish: "direxio-connect Status", LangChinese: "direxio-connect 状态", LangTraditionalChinese: "direxio-connect 狀態",
-		LangJapanese: "direxio-connect ステータス", LangSpanish: "Estado de direxio-connect",
+		LangEnglish: "dirextalk-connect Status", LangChinese: "dirextalk-connect 状态", LangTraditionalChinese: "dirextalk-connect 狀態",
+		LangJapanese: "dirextalk-connect ステータス", LangSpanish: "Estado de dirextalk-connect",
 	},
 	MsgCardTitleLanguage: {
 		LangEnglish: "Language", LangChinese: "语言", LangTraditionalChinese: "語言",
@@ -2967,18 +2967,18 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "\n✅ %d aprobados  ⚠️ %d advertencias  ❌ %d fallidos",
 	},
 	MsgRestarting: {
-		LangEnglish:            "🔄 Restarting direxio-connect...",
-		LangChinese:            "🔄 正在重启 direxio-connect...",
-		LangTraditionalChinese: "🔄 正在重啟 direxio-connect...",
-		LangJapanese:           "🔄 direxio-connect を再起動中...",
-		LangSpanish:            "🔄 Reiniciando direxio-connect...",
+		LangEnglish:            "🔄 Restarting dirextalk-connect...",
+		LangChinese:            "🔄 正在重启 dirextalk-connect...",
+		LangTraditionalChinese: "🔄 正在重啟 dirextalk-connect...",
+		LangJapanese:           "🔄 dirextalk-connect を再起動中...",
+		LangSpanish:            "🔄 Reiniciando dirextalk-connect...",
 	},
 	MsgRestartSuccess: {
-		LangEnglish:            "✅ direxio-connect restarted successfully.",
-		LangChinese:            "✅ direxio-connect 重启成功。",
-		LangTraditionalChinese: "✅ direxio-connect 重啟成功。",
-		LangJapanese:           "✅ direxio-connect の再起動が完了しました。",
-		LangSpanish:            "✅ direxio-connect se reinició correctamente.",
+		LangEnglish:            "✅ dirextalk-connect restarted successfully.",
+		LangChinese:            "✅ dirextalk-connect 重启成功。",
+		LangTraditionalChinese: "✅ dirextalk-connect 重啟成功。",
+		LangJapanese:           "✅ dirextalk-connect の再起動が完了しました。",
+		LangSpanish:            "✅ dirextalk-connect se reinició correctamente.",
 	},
 	MsgUpgradeChecking: {
 		LangEnglish:            "🔍 Checking for updates...",
@@ -3411,25 +3411,25 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "✅ ¡Enlace exitoso! Grupo actual: %s\n\nAhora puede pedir a este bot que consulte a %s.\nEjemplo: \"Pregunta a %s sobre ...\"",
 	},
 	MsgRelaySetupHint: {
-		LangEnglish:            "\n\n⚠️ This agent does not auto-inject direxio-connect instructions.\nPlease run `/bind setup` or `/cron setup` to write instructions to %s.",
-		LangChinese:            "\n\n⚠️ 当前 agent 不会自动注入 direxio-connect 指令。\n请运行 `/bind setup` 或 `/cron setup` 将指令写入 %s。",
-		LangTraditionalChinese: "\n\n⚠️ 當前 agent 不會自動注入 direxio-connect 指令。\n請執行 `/bind setup` 或 `/cron setup` 將指令寫入 %s。",
-		LangJapanese:           "\n\n⚠️ このエージェントは direxio-connect の指示を自動注入しません。\n`/bind setup` または `/cron setup` を実行して %s に指示を書き込んでください。",
-		LangSpanish:            "\n\n⚠️ Este agente no inyecta automáticamente las instrucciones de direxio-connect.\nEjecute `/bind setup` o `/cron setup` para escribirlas en %s.",
+		LangEnglish:            "\n\n⚠️ This agent does not auto-inject dirextalk-connect instructions.\nPlease run `/bind setup` or `/cron setup` to write instructions to %s.",
+		LangChinese:            "\n\n⚠️ 当前 agent 不会自动注入 dirextalk-connect 指令。\n请运行 `/bind setup` 或 `/cron setup` 将指令写入 %s。",
+		LangTraditionalChinese: "\n\n⚠️ 當前 agent 不會自動注入 dirextalk-connect 指令。\n請執行 `/bind setup` 或 `/cron setup` 將指令寫入 %s。",
+		LangJapanese:           "\n\n⚠️ このエージェントは dirextalk-connect の指示を自動注入しません。\n`/bind setup` または `/cron setup` を実行して %s に指示を書き込んでください。",
+		LangSpanish:            "\n\n⚠️ Este agente no inyecta automáticamente las instrucciones de dirextalk-connect.\nEjecute `/bind setup` o `/cron setup` para escribirlas en %s.",
 	},
 	MsgRelaySetupOK: {
-		LangEnglish:            "✅ direxio-connect instructions written to %s\nThe agent can now use relay, cron, and attachment send-back.",
-		LangChinese:            "✅ direxio-connect 指令已写入 %s\nagent 现在可以使用中继、定时任务和附件回传功能了。",
-		LangTraditionalChinese: "✅ direxio-connect 指令已寫入 %s\nagent 現在可以使用中繼、定時任務和附件回傳功能了。",
-		LangJapanese:           "✅ direxio-connect の指示を %s に書き込みました。\nエージェントがリレー、cron、添付ファイル返送を使えるようになりました。",
-		LangSpanish:            "✅ Instrucciones de direxio-connect escritas en %s\nEl agente ahora puede usar relay, cron y reenvío de adjuntos.",
+		LangEnglish:            "✅ dirextalk-connect instructions written to %s\nThe agent can now use relay, cron, and attachment send-back.",
+		LangChinese:            "✅ dirextalk-connect 指令已写入 %s\nagent 现在可以使用中继、定时任务和附件回传功能了。",
+		LangTraditionalChinese: "✅ dirextalk-connect 指令已寫入 %s\nagent 現在可以使用中繼、定時任務和附件回傳功能了。",
+		LangJapanese:           "✅ dirextalk-connect の指示を %s に書き込みました。\nエージェントがリレー、cron、添付ファイル返送を使えるようになりました。",
+		LangSpanish:            "✅ Instrucciones de dirextalk-connect escritas en %s\nEl agente ahora puede usar relay, cron y reenvío de adjuntos.",
 	},
 	MsgRelaySetupExists: {
-		LangEnglish:            "ℹ️ direxio-connect instructions already exist in %s — no changes made.",
-		LangChinese:            "ℹ️ direxio-connect 指令已存在于 %s 中，无需重复写入。",
-		LangTraditionalChinese: "ℹ️ direxio-connect 指令已存在於 %s 中，無需重複寫入。",
-		LangJapanese:           "ℹ️ direxio-connect の指示は既に %s に存在します。変更はありません。",
-		LangSpanish:            "ℹ️ Las instrucciones de direxio-connect ya existen en %s — sin cambios.",
+		LangEnglish:            "ℹ️ dirextalk-connect instructions already exist in %s — no changes made.",
+		LangChinese:            "ℹ️ dirextalk-connect 指令已存在于 %s 中，无需重复写入。",
+		LangTraditionalChinese: "ℹ️ dirextalk-connect 指令已存在於 %s 中，無需重複寫入。",
+		LangJapanese:           "ℹ️ dirextalk-connect の指示は既に %s に存在します。変更はありません。",
+		LangSpanish:            "ℹ️ Las instrucciones de dirextalk-connect ya existen en %s — sin cambios.",
 	},
 	MsgRelaySetupNoMemory: {
 		LangEnglish:            "❌ This agent does not support instruction files.",
@@ -3439,18 +3439,18 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "❌ Este agente no soporta archivos de instrucciones.",
 	},
 	MsgSetupNative: {
-		LangEnglish:            "✅ This agent natively supports direxio-connect instructions — no setup needed.",
-		LangChinese:            "✅ 当前 agent 已原生支持 direxio-connect 指令，无需额外配置。",
-		LangTraditionalChinese: "✅ 當前 agent 已原生支持 direxio-connect 指令，無需額外配置。",
-		LangJapanese:           "✅ このエージェントは direxio-connect の指示をネイティブサポートしています。セットアップ不要です。",
-		LangSpanish:            "✅ Este agente soporta nativamente las instrucciones de direxio-connect — no se necesita configuración.",
+		LangEnglish:            "✅ This agent natively supports dirextalk-connect instructions — no setup needed.",
+		LangChinese:            "✅ 当前 agent 已原生支持 dirextalk-connect 指令，无需额外配置。",
+		LangTraditionalChinese: "✅ 當前 agent 已原生支持 dirextalk-connect 指令，無需額外配置。",
+		LangJapanese:           "✅ このエージェントは dirextalk-connect の指示をネイティブサポートしています。セットアップ不要です。",
+		LangSpanish:            "✅ Este agente soporta nativamente las instrucciones de dirextalk-connect — no se necesita configuración.",
 	},
 	MsgCronSetupOK: {
-		LangEnglish:            "✅ direxio-connect instructions written to %s\nThe agent can now use relay, cron, and attachment send-back.",
-		LangChinese:            "✅ direxio-connect 指令已写入 %s\nagent 现在可以使用中继、定时任务和附件回传功能了。",
-		LangTraditionalChinese: "✅ direxio-connect 指令已寫入 %s\nagent 現在可以使用中繼、定時任務和附件回傳功能了。",
-		LangJapanese:           "✅ direxio-connect の指示を %s に書き込みました。\nエージェントがリレー、cron、添付ファイル返送を使えるようになりました。",
-		LangSpanish:            "✅ Instrucciones de direxio-connect escritas en %s\nEl agente ahora puede usar relay, cron y reenvío de adjuntos.",
+		LangEnglish:            "✅ dirextalk-connect instructions written to %s\nThe agent can now use relay, cron, and attachment send-back.",
+		LangChinese:            "✅ dirextalk-connect 指令已写入 %s\nagent 现在可以使用中继、定时任务和附件回传功能了。",
+		LangTraditionalChinese: "✅ dirextalk-connect 指令已寫入 %s\nagent 現在可以使用中繼、定時任務和附件回傳功能了。",
+		LangJapanese:           "✅ dirextalk-connect の指示を %s に書き込みました。\nエージェントがリレー、cron、添付ファイル返送を使えるようになりました。",
+		LangSpanish:            "✅ Instrucciones de dirextalk-connect escritas en %s\nEl agente ahora puede usar relay, cron y reenvío de adjuntos.",
 	},
 	MsgSearchUsage: {
 		LangEnglish:            "Usage: /search <keyword>\nSearch sessions by name or ID.",
@@ -3664,11 +3664,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "Buscar actualizaciones y auto-actualizar",
 	},
 	MsgBuiltinCmdRestart: {
-		LangEnglish:            "Restart direxio-connect service",
-		LangChinese:            "重启 direxio-connect 服务",
-		LangTraditionalChinese: "重啟 direxio-connect 服務",
-		LangJapanese:           "direxio-connect サービスを再起動",
-		LangSpanish:            "Reiniciar el servicio direxio-connect",
+		LangEnglish:            "Restart dirextalk-connect service",
+		LangChinese:            "重启 dirextalk-connect 服务",
+		LangTraditionalChinese: "重啟 dirextalk-connect 服務",
+		LangJapanese:           "dirextalk-connect サービスを再起動",
+		LangSpanish:            "Reiniciar el servicio dirextalk-connect",
 	},
 	MsgBuiltinCmdStatus: {
 		LangEnglish:            "Show system status",
@@ -3685,11 +3685,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "Mostrar uso de cuota de cuenta/modelo",
 	},
 	MsgBuiltinCmdVersion: {
-		LangEnglish:            "Show direxio-connect version",
-		LangChinese:            "查看 direxio-connect 版本",
-		LangTraditionalChinese: "查看 direxio-connect 版本",
-		LangJapanese:           "direxio-connect のバージョンを表示",
-		LangSpanish:            "Mostrar versión de direxio-connect",
+		LangEnglish:            "Show dirextalk-connect version",
+		LangChinese:            "查看 dirextalk-connect 版本",
+		LangTraditionalChinese: "查看 dirextalk-connect 版本",
+		LangJapanese:           "dirextalk-connect のバージョンを表示",
+		LangSpanish:            "Mostrar versión de dirextalk-connect",
 	},
 	MsgBuiltinCmdHelp: {
 		LangEnglish:            "Show this help",

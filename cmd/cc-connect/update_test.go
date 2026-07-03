@@ -114,15 +114,15 @@ func TestSyncNpmPackageVersion_NormalizesVPrefix(t *testing.T) {
 	// Regression test: old package.json stored version as "v1.0.0" but newVer
 	// is already stripped to "1.0.0". They should be treated as equal.
 	dir := t.TempDir()
-	ccConnectDir := filepath.Join(dir, "node_modules", "direxio-connect")
+	ccConnectDir := filepath.Join(dir, "node_modules", "dirextalk-connect")
 	binDir := filepath.Join(ccConnectDir, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	execPath := filepath.Join(binDir, "direxio-connect")
+	execPath := filepath.Join(binDir, "dirextalk-connect")
 
 	pkgJSON := filepath.Join(ccConnectDir, "package.json")
-	pkgData := `{"name": "direxio-connent", "version": "v1.0.0"}`
+	pkgData := `{"name": "dirextalk", "version": "v1.0.0"}`
 	if err := os.WriteFile(pkgJSON, []byte(pkgData), 0o644); err != nil {
 		t.Fatalf("write pkg.json: %v", err)
 	}
@@ -147,15 +147,15 @@ func TestSyncNpmPackageVersion_NormalizesVPrefix(t *testing.T) {
 
 func TestSyncNpmPackageVersion_UpdatesWhenDifferent(t *testing.T) {
 	dir := t.TempDir()
-	ccConnectDir := filepath.Join(dir, "node_modules", "direxio-connect")
+	ccConnectDir := filepath.Join(dir, "node_modules", "dirextalk-connect")
 	binDir := filepath.Join(ccConnectDir, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	execPath := filepath.Join(binDir, "direxio-connect")
+	execPath := filepath.Join(binDir, "dirextalk-connect")
 
 	pkgJSON := filepath.Join(ccConnectDir, "package.json")
-	pkgData := `{"name": "direxio-connent", "version": "v0.9.0"}`
+	pkgData := `{"name": "dirextalk", "version": "v0.9.0"}`
 	if err := os.WriteFile(pkgJSON, []byte(pkgData), 0o644); err != nil {
 		t.Fatalf("write pkg.json: %v", err)
 	}

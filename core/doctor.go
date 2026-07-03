@@ -419,7 +419,7 @@ func checkRuntimePaths(dataDir string) []DoctorCheckResult {
 	dataDir = strings.TrimSpace(dataDir)
 	if dataDir == "" {
 		if home, err := os.UserHomeDir(); err == nil {
-			dataDir = filepath.Join(home, ".direxio-connect")
+			dataDir = filepath.Join(home, ".dirextalk-connect")
 		}
 	}
 	if dataDir != "" {

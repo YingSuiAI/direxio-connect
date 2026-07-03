@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	ccconnect "github.com/YingSuiAI/direxio-connect"
-	"github.com/YingSuiAI/direxio-connect/config"
+	ccconnect "github.com/YingSuiAI/dirextalk-connect"
+	"github.com/YingSuiAI/dirextalk-connect/config"
 )
 
 func runConfig(args []string) {
@@ -47,7 +47,7 @@ func runConfigFormat(args []string) {
 }
 
 func printConfigUsage() {
-	fmt.Fprintf(os.Stderr, `Usage: direxio-connect config <subcommand>
+	fmt.Fprintf(os.Stderr, `Usage: dirextalk-connect config <subcommand>
 
 Subcommands:
   example    Print a complete annotated config.toml example
@@ -58,9 +58,9 @@ Flags for 'format':
   --config <path>   Path to config file (default: auto-detect)
 
 Examples:
-  direxio-connect config example              Print example config
-  direxio-connect config example > config.toml  Save example config
-  direxio-connect config format               Format default config file
-  direxio-connect config fmt --config /path/to/config.toml
+  dirextalk-connect config example              Print example config
+  dirextalk-connect config example > config.toml  Save example config
+  dirextalk-connect config format               Format default config file
+  dirextalk-connect config fmt --config /path/to/config.toml
 `)
 }

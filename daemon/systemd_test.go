@@ -43,9 +43,9 @@ func TestBuildUnit_EscapesEnvValue(t *testing.T) {
 }
 
 func TestSystemdCustomServiceNameUsesDistinctUnitName(t *testing.T) {
-	mgr := &systemdManager{system: false, serviceName: "t1.direxio.ai"}
-	if got := mgr.serviceUnitName(); got != "cc-connect-t1.direxio.ai.service" {
-		t.Fatalf("serviceUnitName() = %q, want cc-connect-t1.direxio.ai.service", got)
+	mgr := &systemdManager{system: false, serviceName: "t1.dirextalk.ai"}
+	if got := mgr.serviceUnitName(); got != "cc-connect-t1.dirextalk.ai.service" {
+		t.Fatalf("serviceUnitName() = %q, want cc-connect-t1.dirextalk.ai.service", got)
 	}
 
 	defaultMgr := &systemdManager{system: false}
@@ -56,12 +56,12 @@ func TestSystemdCustomServiceNameUsesDistinctUnitName(t *testing.T) {
 
 func TestSystemdCustomServiceNameUsesDistinctUnitPath(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	custom := (&systemdManager{system: false, serviceName: "t1.direxio.ai"}).unitPath()
+	custom := (&systemdManager{system: false, serviceName: "t1.dirextalk.ai"}).unitPath()
 	defaultPath := (&systemdManager{system: false}).unitPath()
 	if custom == defaultPath {
 		t.Fatal("custom service must not share default unit path")
 	}
-	if !strings.HasSuffix(custom, "/cc-connect-t1.direxio.ai.service") {
+	if !strings.HasSuffix(custom, "/cc-connect-t1.dirextalk.ai.service") {
 		t.Fatalf("custom unit path = %q", custom)
 	}
 }

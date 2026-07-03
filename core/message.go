@@ -83,7 +83,7 @@ type FileAttachment struct {
 	FileName string // original filename
 }
 
-// SaveFilesToDisk saves file attachments to workDir/.direxio-connect/attachments/
+// SaveFilesToDisk saves file attachments to workDir/.dirextalk-connect/attachments/
 // and returns the list of absolute file paths. Agents can reference these paths
 // in their prompts so the CLI can read them with built-in tools.
 //
@@ -96,7 +96,7 @@ func SaveFilesToDisk(workDir string, files []FileAttachment) []string {
 	if len(files) == 0 {
 		return nil
 	}
-	attachDir := filepath.Join(workDir, ".direxio-connect", "attachments")
+	attachDir := filepath.Join(workDir, ".dirextalk-connect", "attachments")
 	if err := os.MkdirAll(attachDir, 0o755); err != nil {
 		slog.Warn("SaveFilesToDisk: mkdir failed", "dir", attachDir, "error", err)
 	}

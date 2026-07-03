@@ -5,7 +5,7 @@ package main
 import (
 	"context"
 
-	"github.com/YingSuiAI/direxio-connect/config"
+	"github.com/YingSuiAI/dirextalk-connect/config"
 )
 
 func runRunAsUserStartupChecks(_ context.Context, _ *config.Config) error {

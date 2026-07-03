@@ -1,10 +1,12 @@
+//go:build !windows
+
 package main
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/YingSuiAI/direxio-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 func TestDefaultAuditDir_HomeSuffix(t *testing.T) {
@@ -12,8 +14,8 @@ func TestDefaultAuditDir_HomeSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("defaultAuditDir error: %v", err)
 	}
-	if !strings.HasSuffix(dir, "/.direxio-connect/audits") {
-		t.Errorf("audit dir = %q, want suffix /.direxio-connect/audits", dir)
+	if !strings.HasSuffix(dir, "/.dirextalk-connect/audits") {
+		t.Errorf("audit dir = %q, want suffix /.dirextalk-connect/audits", dir)
 	}
 }
 

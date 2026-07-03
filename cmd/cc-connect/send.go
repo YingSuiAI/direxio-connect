@@ -14,8 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/YingSuiAI/direxio-connect/config"
-	"github.com/YingSuiAI/direxio-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/config"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 func runSend(args []string) {
@@ -32,7 +32,7 @@ func runSend(args []string) {
 
 	sockPath := resolveSocketPath(dataDir)
 	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Error: direxio-connect is not running (socket not found: %s)\n", sockPath)
+		fmt.Fprintf(os.Stderr, "Error: dirextalk-connect is not running (socket not found: %s)\n", sockPath)
 		os.Exit(1)
 	}
 
@@ -277,7 +277,7 @@ func attachmentMatchesMediaType(mimeType, fileName, mediaType string) bool {
 }
 
 // loadSendConfigBestEffort loads config.toml — resolved the same way the
-// daemon resolves it — so the standalone `direxio-connect send` subcommand (a
+// daemon resolves it — so the standalone `dirextalk-connect send` subcommand (a
 // separate process that otherwise has no config) can honour
 // max_attachment_size_mb. Errors are ignored and nil is returned, so a missing
 // or invalid config never breaks sending; the caller then falls back to the
@@ -348,23 +348,23 @@ func resolveSocketPath(dataDir string) string {
 		return filepath.Join(envDataDir, "run", "api.sock")
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".direxio-connect", "run", "api.sock")
+		return filepath.Join(home, ".dirextalk-connect", "run", "api.sock")
 	}
-	return filepath.Join(".direxio-connect", "run", "api.sock")
+	return filepath.Join(".dirextalk-connect", "run", "api.sock")
 }
 
 func printSendUsage() {
-	fmt.Println(`Usage: direxio-connect send [options] <message>
-       direxio-connect send [options] -m <message>
-       direxio-connect send [options] --stdin < file
-       direxio-connect send [options] --image <path>
-       direxio-connect send [options] --file <path>
-       direxio-connect send [options] --audio <path>
-       direxio-connect send [options] --video <path>
-       direxio-connect send [options] --tts <text>
-       echo "msg" | direxio-connect send [options] --stdin
+	fmt.Println(`Usage: dirextalk-connect send [options] <message>
+       dirextalk-connect send [options] -m <message>
+       dirextalk-connect send [options] --stdin < file
+       dirextalk-connect send [options] --image <path>
+       dirextalk-connect send [options] --file <path>
+       dirextalk-connect send [options] --audio <path>
+       dirextalk-connect send [options] --video <path>
+       dirextalk-connect send [options] --tts <text>
+       echo "msg" | dirextalk-connect send [options] --stdin
 
-Send a message, attachment, or synthesized voice message to an active direxio-connect session.
+Send a message, attachment, or synthesized voice message to an active dirextalk-connect session.
 
 Options:
   -m, --message <text>     Message to send (preferred over positional args)
@@ -380,18 +380,18 @@ Options:
       --at-all             Mention everyone supported by the Matrix bridge
   -p, --project <name>     Target project (optional if only one project)
   -s, --session <key>      Target session key (optional, picks first active)
-      --data-dir <path>    Data directory (default: ~/.direxio-connect)
+      --data-dir <path>    Data directory (default: ~/.dirextalk-connect)
   -h, --help               Show this help
 
 Examples:
-  direxio-connect send "Daily summary: ..."
-  direxio-connect send -m "Build completed successfully"
-  direxio-connect send --message "Chart generated" --image /tmp/chart.png
-  direxio-connect send --file /tmp/report.pdf
-  direxio-connect send --video /tmp/demo.mp4
-  direxio-connect send --audio /tmp/voice.opus
-  direxio-connect send --tts "Hello from direxio-connect"
-  direxio-connect send --stdin <<'EOF'
+  dirextalk-connect send "Daily summary: ..."
+  dirextalk-connect send -m "Build completed successfully"
+  dirextalk-connect send --message "Chart generated" --image /tmp/chart.png
+  dirextalk-connect send --file /tmp/report.pdf
+  dirextalk-connect send --video /tmp/demo.mp4
+  dirextalk-connect send --audio /tmp/voice.opus
+  dirextalk-connect send --tts "Hello from dirextalk-connect"
+  dirextalk-connect send --stdin <<'EOF'
     Long message with "special" chars, $variables, and newlines
   EOF`)
 }

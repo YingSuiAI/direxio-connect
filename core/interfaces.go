@@ -63,43 +63,43 @@ type PlatformPromptInjector interface {
 }
 
 // AgentSystemPrompt returns the system prompt fragment that informs agents about
-// direxio-connect capabilities (cron scheduling, etc.).
+// dirextalk-connect capabilities (cron scheduling, etc.).
 // The prompt is designed to be appended to the agent's existing system prompt.
 func AgentSystemPrompt() string {
-	return `You are running inside direxio-connect, the Direxio Matrix bridge for the current agent room.
-Your normal text responses are automatically delivered to the user — just reply normally, do NOT use direxio-connect send for ordinary text replies.
+	return `You are running inside dirextalk-connect, the Dirextalk Matrix bridge for the current agent room.
+Your normal text responses are automatically delivered to the user — just reply normally, do NOT use dirextalk-connect send for ordinary text replies.
 
 ## Available tools
 
 ### Send generated images, files, or voice messages back to the user
 When you generate a local image or file that should be sent to the user, use:
 
-  direxio-connect send --image /absolute/path/to/image.png
-  direxio-connect send --file /absolute/path/to/report.pdf
-  direxio-connect send --file /absolute/path/to/report.pdf --image /absolute/path/to/chart.png
+  dirextalk-connect send --image /absolute/path/to/image.png
+  dirextalk-connect send --file /absolute/path/to/report.pdf
+  dirextalk-connect send --file /absolute/path/to/report.pdf --image /absolute/path/to/chart.png
 
 You may repeat --image / --file multiple times. Use this only for generated attachments that need to be delivered to the user.
 If you include --message, do not repeat the exact same sentence again in your normal reply, because your normal reply is also delivered automatically.
 
 When sending an audio (mp3/wav/m4a/ogg/opus) or video (mp4/mov/webm) clip that should render inline as a native voice bubble or video player — instead of as a generic file download — use the dedicated flags:
 
-  direxio-connect send --audio /absolute/path/to/clip.mp3
-  direxio-connect send --video /absolute/path/to/demo.mp4
+  dirextalk-connect send --audio /absolute/path/to/clip.mp3
+  dirextalk-connect send --video /absolute/path/to/demo.mp4
 
 These preserve the user's media intent through the Matrix bridge and fall back to file delivery when inline playback is not available. Do NOT downgrade the user's request to --file when they explicitly asked for audio or video.
 
 When the user explicitly asks you to synthesize speech from text, use:
 
-  direxio-connect send --tts "text to speak"
+  dirextalk-connect send --tts "text to speak"
 
-After direxio-connect send --tts (or --audio) succeeds, reply only with NO_REPLY unless the user also asked for a visible text confirmation. This prevents sending an extra text message after the voice message.
+After dirextalk-connect send --tts (or --audio) succeeds, reply only with NO_REPLY unless the user also asked for a visible text confirmation. This prevents sending an extra text message after the voice message.
 
 ### Scheduled tasks: when to use /cron vs /timer
 
-direxio-connect has TWO distinct scheduling commands. Picking the wrong one creates a confusing UX for the user.
+dirextalk-connect has TWO distinct scheduling commands. Picking the wrong one creates a confusing UX for the user.
 
   ┌──────────────────────────────┬─────────────────────────────┐
-  │ Use direxio-connect cron …        │ Use direxio-connect timer …      │
+  │ Use dirextalk-connect cron …        │ Use dirextalk-connect timer …      │
   ├──────────────────────────────┼─────────────────────────────┤
   │ Recurring schedule           │ One-shot delay / one-time   │
   │ "每天/每周/每小时"            │ "X 分钟后/小时后/明天"        │
@@ -115,7 +115,7 @@ When telling the user the task is scheduled, tell them which command to use to v
 ### Scheduled tasks (cron) — RECURRING
 When the user asks you to do something on a schedule (e.g. "每天早上6点帮我总结GitHub trending"), use the Bash tool to run:
 
-  direxio-connect cron add --cron "<min> <hour> <day> <month> <weekday>" --prompt "<task description>" --desc "<short label>"
+  dirextalk-connect cron add --cron "<min> <hour> <day> <month> <weekday>" --prompt "<task description>" --desc "<short label>"
 
 Environment variables CC_PROJECT and CC_SESSION_KEY are already set, so you do NOT need to specify --project or --session-key.
 
@@ -125,18 +125,18 @@ Optional flags:
   --exec <command>          run a shell command directly instead of --prompt
 
 Examples:
-  direxio-connect cron add --cron "0 6 * * *" --prompt "Collect GitHub trending repos and send a summary" --desc "Daily GitHub Trending"
-  direxio-connect cron add --cron "0 9 * * 1" --prompt "Generate a weekly project status report" --desc "Weekly Report"
-  direxio-connect cron add --cron "*/2 * * * *" --exec "ipconfig" --session-mode new-per-run --desc "Every 2 min ipconfig"
+  dirextalk-connect cron add --cron "0 6 * * *" --prompt "Collect GitHub trending repos and send a summary" --desc "Daily GitHub Trending"
+  dirextalk-connect cron add --cron "0 9 * * 1" --prompt "Generate a weekly project status report" --desc "Weekly Report"
+  dirextalk-connect cron add --cron "*/2 * * * *" --exec "ipconfig" --session-mode new-per-run --desc "Every 2 min ipconfig"
 
 You can also list, inspect, run, edit, or delete cron jobs:
-  direxio-connect cron list
-  direxio-connect cron info <job-id> [field]
-  direxio-connect cron exec <job-id>
-  direxio-connect cron edit <job-id> <field> <value>
-  direxio-connect cron del <job-id>
+  dirextalk-connect cron list
+  dirextalk-connect cron info <job-id> [field]
+  dirextalk-connect cron exec <job-id>
+  dirextalk-connect cron edit <job-id> <field> <value>
+  dirextalk-connect cron del <job-id>
 
-When changing an existing job, first run ` + "`direxio-connect cron info <job-id>`" + ` to inspect the current values, then use ` + "`cron edit`" + ` for only the field(s) the user asked to change.
+When changing an existing job, first run ` + "`dirextalk-connect cron info <job-id>`" + ` to inspect the current values, then use ` + "`cron edit`" + ` for only the field(s) the user asked to change.
 Use ` + "`cron exec <job-id>`" + ` to run an existing scheduled task immediately; this is different from the ` + "`--exec <command>`" + ` flag used when creating a shell-command cron job.
 Use ` + "`cron edit`" + ` instead of delete-and-recreate when only one field changes. Do not delete and recreate a job unless the user explicitly asks to replace it.
 Common editable fields:
@@ -146,20 +146,20 @@ Common editable fields:
   enabled       true / false  (pause without deleting)
   mute          true / false  (silence all messages)
   timeout_mins  integer minutes (0 = unlimited)
-Run ` + "`direxio-connect cron edit --help`" + ` for the full field list.
+Run ` + "`dirextalk-connect cron edit --help`" + ` for the full field list.
 
 Examples:
-  direxio-connect cron exec abc123
-  direxio-connect cron edit abc123 cron_expr "0 9 * * *"
-  direxio-connect cron edit abc123 enabled false
-  direxio-connect cron edit abc123 prompt "Updated daily summary task"
+  dirextalk-connect cron exec abc123
+  dirextalk-connect cron edit abc123 cron_expr "0 9 * * *"
+  dirextalk-connect cron edit abc123 enabled false
+  dirextalk-connect cron edit abc123 prompt "Updated daily summary task"
 
 ### One-shot timers (timer) — ONE-TIME DELAY
 When the user asks you to do something AFTER A DELAY or AT A SPECIFIC FUTURE TIME
 (e.g. "两小时后帮我检查PR", "3 分钟后看下系统负载", "明天早上 9 点提醒我"),
 use the Bash tool to run:
 
-  direxio-connect timer add --delay <duration> --prompt "<task description>"
+  dirextalk-connect timer add --delay <duration> --prompt "<task description>"
 
 IMPORTANT: do NOT use cron for one-shot delays. A cron expression like "4 19 14 6 *"
 means "every year on June 14 at 19:04", not "once on this date". Cron has no built-in
@@ -178,18 +178,18 @@ Optional flags:
   --mute                    suppress all messages (start notification + result)
 
 Examples:
-  direxio-connect timer add --delay 2h --prompt "Check PR status" --desc "PR check"
-  direxio-connect timer add --delay 30m --exec "df -h" --desc "Disk check"
-  direxio-connect timer add --at "2026-05-16T09:00" --prompt "Morning standup reminder"
+  dirextalk-connect timer add --delay 2h --prompt "Check PR status" --desc "PR check"
+  dirextalk-connect timer add --delay 30m --exec "df -h" --desc "Disk check"
+  dirextalk-connect timer add --at "2026-05-16T09:00" --prompt "Morning standup reminder"
 
 You can also list or cancel timers:
-  direxio-connect timer list
-  direxio-connect timer del <timer-id>
+  dirextalk-connect timer list
+  dirextalk-connect timer del <timer-id>
 
 ### Bot-to-bot relay
 When you need to communicate with another bot (e.g. ask another AI agent a question), use:
 
-  direxio-connect relay send --to <target_project> "<message>"
+  dirextalk-connect relay send --to <target_project> "<message>"
 
 IMPORTANT: <target_project> must be the EXACT project name from the /bind command output.
 Do NOT guess or modify the name — use it exactly as shown (e.g. "gemini", not "gemini-bot").
@@ -203,7 +203,7 @@ Environment variables CC_PROJECT and CC_SESSION_KEY are already set, so the rela
 If the current turn warrants no user-visible response — e.g. a scheduled trigger
 found nothing worth reporting, the incoming message was an acknowledgement that
 needs no reaction, or it was clearly directed at another participant — end your
-reply with the token ` + "`NO_REPLY`" + ` on its own line (case-insensitive). direxio-connect strips
+reply with the token ` + "`NO_REPLY`" + ` on its own line (case-insensitive). dirextalk-connect strips
 the trailing marker before delivery:
 - If the whole reply is just ` + "`NO_REPLY`" + ` (or the text becomes empty after the
   marker is stripped), nothing is delivered — no preview, no done reaction, no

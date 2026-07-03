@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/core"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/event"
@@ -449,7 +449,7 @@ func TestPlatform_StopPublishesAgentRoomOfflineStatus(t *testing.T) {
 		if r.Method != http.MethodPut {
 			t.Errorf("method = %s, want PUT", r.Method)
 		}
-		wantPath := "/_matrix/client/v3/rooms/!room:matrix.org/state/io.direxio.agent.status/@agent:matrix.org"
+		wantPath := "/_matrix/client/v3/rooms/!room:matrix.org/state/io.dirextalk.agent.status/@agent:matrix.org"
 		if r.URL.Path != wantPath {
 			t.Errorf("path = %s, want %s", r.URL.Path, wantPath)
 		}
@@ -496,7 +496,7 @@ func TestPlatform_RunConnectionPublishesAgentRoomOnlineStatus(t *testing.T) {
 			_, _ = w.Write([]byte(`{"user_id":"@agent:matrix.org","device_id":"DEVICE"}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/_matrix/client/v3/keys/query":
 			http.Error(w, "e2ee disabled in status test", http.StatusServiceUnavailable)
-		case r.Method == http.MethodPut && r.URL.Path == "/_matrix/client/v3/rooms/!room:matrix.org/state/io.direxio.agent.status/@agent:matrix.org":
+		case r.Method == http.MethodPut && r.URL.Path == "/_matrix/client/v3/rooms/!room:matrix.org/state/io.dirextalk.agent.status/@agent:matrix.org":
 			var body map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Errorf("decode request body: %v", err)
@@ -564,7 +564,7 @@ func TestPlatform_RunConnectionRefreshesAgentRoomOnlineStatus(t *testing.T) {
 			http.Error(w, "e2ee disabled in status test", http.StatusServiceUnavailable)
 		case r.Method == http.MethodPost && r.URL.Path == "/_matrix/client/v3/user/@agent:matrix.org/filter":
 			_, _ = w.Write([]byte(`{"filter_id":"test-filter"}`))
-		case r.Method == http.MethodPut && r.URL.Path == "/_matrix/client/v3/rooms/!room:matrix.org/state/io.direxio.agent.status/@agent:matrix.org":
+		case r.Method == http.MethodPut && r.URL.Path == "/_matrix/client/v3/rooms/!room:matrix.org/state/io.dirextalk.agent.status/@agent:matrix.org":
 			var body map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Errorf("decode request body: %v", err)

@@ -1,12 +1,12 @@
-# direxio-connect configuration
-# Docs: https://github.com/YingSuiAI/direxio-connect
+# dirextalk-connect configuration
+# Docs: https://github.com/YingSuiAI/dirextalk-connect
 #
-# This distribution is Direxio-only. The only supported platform type is
+# This distribution is Dirextalk-only. The only supported platform type is
 # "matrix", and the Matrix account should be the local @agent:<server> user
-# returned by Direxio agent.matrix_session.create.
+# returned by Dirextalk agent.matrix_session.create.
 
 language = "zh"
-data_dir = "~/.direxio-connect"
+data_dir = "~/.dirextalk-connect"
 
 [log]
 level = "info"
@@ -25,7 +25,7 @@ max_messages = 20
 window_secs = 60
 
 [[projects]]
-name = "direxio-agent-room"
+name = "dirextalk-agent-room"
 
 [projects.agent]
 type = "codex"
@@ -34,7 +34,7 @@ type = "codex"
 # type = "acp"
 # [projects.agent.options]
 # work_dir = "/path/to/project"
-# cmd = "direxio-connect"
+# cmd = "dirextalk-connect"
 # args = ["hermes-acp-adapter", "--", "hermes", "acp"]
 # display_name = "Hermes ACP"
 
@@ -48,7 +48,7 @@ type = "matrix"
 homeserver = "https://im.example.com"
 access_token = "agent-matrix-access-token"
 user_id = "@agent:im.example.com"
-device_id = "DIREXIO_CC_CONNECT"
+device_id = "DIREXTALK_CC_CONNECT"
 room_id = "!real-agent-room:im.example.com"
 share_session_in_channel = true
 group_reply_all = true

@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/direxio-connect/config"
-	"github.com/YingSuiAI/direxio-connect/daemon"
+	"github.com/YingSuiAI/dirextalk-connect/config"
+	"github.com/YingSuiAI/dirextalk-connect/daemon"
 )
 
 func runDaemon(args []string) {
@@ -106,7 +106,7 @@ func daemonInstall(serviceName string, args []string) {
 		fmt.Fprintf(os.Stderr, "Warning: failed to save metadata: %v\n", err)
 	}
 
-	fmt.Println("direxio-connect daemon installed and started.")
+	fmt.Println("dirextalk-connect daemon installed and started.")
 	fmt.Println()
 	fmt.Printf("  Service:   %s\n", cfg.ServiceName)
 	fmt.Printf("  Platform:  %s\n", mgr.Platform())
@@ -117,11 +117,11 @@ func daemonInstall(serviceName string, args []string) {
 	fmt.Println()
 	fmt.Println("Commands:")
 	serviceFlag := daemonServiceFlag(cfg.ServiceName)
-	fmt.Printf("  direxio-connect daemon status%s    - Check status\n", serviceFlag)
-	fmt.Printf("  direxio-connect daemon logs%s -f   - Follow logs\n", serviceFlag)
-	fmt.Printf("  direxio-connect daemon restart%s   - Restart\n", serviceFlag)
-	fmt.Printf("  direxio-connect daemon stop%s      - Stop\n", serviceFlag)
-	fmt.Printf("  direxio-connect daemon uninstall%s - Remove\n", serviceFlag)
+	fmt.Printf("  dirextalk-connect daemon status%s    - Check status\n", serviceFlag)
+	fmt.Printf("  dirextalk-connect daemon logs%s -f   - Follow logs\n", serviceFlag)
+	fmt.Printf("  dirextalk-connect daemon restart%s   - Restart\n", serviceFlag)
+	fmt.Printf("  dirextalk-connect daemon stop%s      - Stop\n", serviceFlag)
+	fmt.Printf("  dirextalk-connect daemon uninstall%s - Remove\n", serviceFlag)
 
 	// Check linger for user-mode systemd
 	if strings.Contains(mgr.Platform(), "user") {
@@ -129,7 +129,7 @@ func daemonInstall(serviceName string, args []string) {
 		if !enabled {
 			fmt.Println()
 			fmt.Println("⚠️  Warning: Linger is not enabled for this user.")
-			fmt.Println("   direxio-connect will stop when your last login session ends (e.g., SSH disconnect).")
+			fmt.Println("   dirextalk-connect will stop when your last login session ends (e.g., SSH disconnect).")
 			fmt.Println("   To keep it running persistently, run:")
 			fmt.Printf("     sudo loginctl enable-linger %s\n", user)
 		}
@@ -197,10 +197,10 @@ func parseDaemonInstallArgs(args []string) (daemon.Config, bool, error) {
 			if err != nil {
 				return daemon.Config{}, false, err
 			}
-			cfg.WorkDir = value
+			cfg.WorkDir = filepath.Clean(value)
 			i = next
 		case strings.HasPrefix(arg, "--work-dir="):
-			cfg.WorkDir = strings.TrimPrefix(arg, "--work-dir=")
+			cfg.WorkDir = filepath.Clean(strings.TrimPrefix(arg, "--work-dir="))
 		case arg == "--config" || arg == "-config":
 			value, next, err := daemonInstallFlagValue(args, i, arg)
 			if err != nil {
@@ -221,7 +221,7 @@ func parseDaemonInstallArgs(args []string) (daemon.Config, bool, error) {
 }
 
 func parseDaemonServiceName(args []string) (string, []string, error) {
-	serviceName := os.Getenv("DIREXIO_CONNECT_SERVICE_NAME")
+	serviceName := os.Getenv("DIREXTALK_CONNECT_SERVICE_NAME")
 	rest := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -295,7 +295,7 @@ func daemonUninstall(serviceName string) {
 	}
 
 	daemon.RemoveMetaForService(serviceName)
-	fmt.Println("direxio-connect daemon uninstalled.")
+	fmt.Println("dirextalk-connect daemon uninstalled.")
 }
 
 // ── start / stop / restart ──────────────────────────────────
@@ -307,7 +307,7 @@ func daemonStart(serviceName string) {
 		fmt.Fprintf(os.Stderr, "Start failed: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("direxio-connect daemon started.")
+	fmt.Println("dirextalk-connect daemon started.")
 }
 
 func daemonStop(serviceName string) {
@@ -324,7 +324,7 @@ func daemonStop(serviceName string) {
 		fmt.Fprintf(os.Stderr, "Stop failed: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("direxio-connect daemon stopped.")
+	fmt.Println("dirextalk-connect daemon stopped.")
 }
 
 func daemonDataDirFromMeta(serviceName string) (string, error) {
@@ -388,7 +388,7 @@ func daemonRestart(serviceName string, args []string) {
 		fmt.Fprintf(os.Stderr, "Restart failed: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("direxio-connect daemon restarted.")
+	fmt.Println("dirextalk-connect daemon restarted.")
 }
 
 func requireInstalled(mgr daemon.Manager) {
@@ -399,7 +399,7 @@ func requireInstalled(mgr daemon.Manager) {
 			serviceName = st.Service
 		}
 		fmt.Fprintln(os.Stderr, "Service is not installed. Run first:")
-		fmt.Fprintf(os.Stderr, "  direxio-connect daemon install%s --work-dir /path/to/config-dir\n", daemonServiceFlag(serviceName))
+		fmt.Fprintf(os.Stderr, "  dirextalk-connect daemon install%s --work-dir /path/to/config-dir\n", daemonServiceFlag(serviceName))
 		os.Exit(1)
 	}
 }
@@ -414,7 +414,7 @@ func daemonStatus(serviceName string) {
 		os.Exit(1)
 	}
 
-	fmt.Println("direxio-connect daemon status")
+	fmt.Println("dirextalk-connect daemon status")
 	fmt.Println()
 
 	if !st.Installed {
@@ -422,7 +422,7 @@ func daemonStatus(serviceName string) {
 		fmt.Printf("  Service:   %s\n", serviceName)
 		fmt.Printf("  Platform:  %s\n", st.Platform)
 		fmt.Println()
-		fmt.Printf("  Run: direxio-connect daemon install%s\n", daemonServiceFlag(serviceName))
+		fmt.Printf("  Run: dirextalk-connect daemon install%s\n", daemonServiceFlag(serviceName))
 		return
 	}
 
@@ -551,7 +551,7 @@ func mustManager(serviceName string) daemon.Manager {
 }
 
 func printDaemonUsage() {
-	fmt.Println(`Usage: direxio-connect daemon <command> [flags]
+	fmt.Println(`Usage: dirextalk-connect daemon <command> [flags]
 
 Commands:
   install     Install and start as system service
@@ -564,9 +564,9 @@ Commands:
 
 Install flags:
   --service-name NAME   Named service instance (default: cc-connect; env:
-                        DIREXIO_CONNECT_SERVICE_NAME). Use one per Direxio node.
+                        DIREXTALK_CONNECT_SERVICE_NAME). Use one per Dirextalk node.
   --config PATH         Path to config.toml (uses its parent as work dir)
-  --log-file PATH       Log file path (default: ~/.direxio-connect/logs/direxio-connect.log)
+  --log-file PATH       Log file path (default: ~/.dirextalk-connect/logs/dirextalk-connect.log)
   --log-max-size N      Max log file size in MB (default: 10)
   --work-dir DIR        Directory containing config.toml (default: current dir)
   --force               Overwrite existing installation
