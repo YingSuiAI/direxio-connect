@@ -8,7 +8,7 @@ This repository is the Dirextalk-maintained fork of cc-connect. It is a local br
 - Do not add back Feishu, WPS Xiezuo, DingTalk, Telegram, Slack, Discord, LINE, WeCom, Weibo, Weixin, QQ, QQ Bot, or other chat-platform adapters.
 - Keep support for local coding agent backends broad and neutral. Do not make Codex the only first-class backend; Codex, Claude Code, Gemini, Cursor, Copilot, Qoder, OpenCode, and similar local agent runtimes should be treated evenly where the architecture already supports them.
 - The production binary name is `dirextalk-connect`.
-- The npm package name is `dirextalk`.
+- The npm package name is `dirextalk-connect`.
 - The GitHub repository and release source is `https://github.com/YingSuiAI/dirextalk-connect`.
 
 ## Dirextalk Matrix Contract
@@ -76,7 +76,7 @@ auto_verify = false
 - Before claiming npm install works, verify a real install of the just-published package, for example:
 
 ```powershell
-npm install --prefix <temp-dir> dirextalk@<version>
+npm install --prefix <temp-dir> dirextalk-connect@<version>
 <temp-dir>\node_modules\.bin\dirextalk-connect.cmd --version
 ```
 
@@ -87,7 +87,7 @@ make build AGENTS=codex PLATFORMS_INCLUDE=matrix
 node --check npm/install.js
 npm pack --dry-run --prefix npm
 gh release view v<version> --repo YingSuiAI/dirextalk-connect
-npm view dirextalk@<version> version
+npm view dirextalk-connect@<version> version
 ```
 
 ## Development Workflow
@@ -123,4 +123,4 @@ git diff --check
 - Keep README and INSTALL focused on Dirextalk operation, not the removed upstream multi-platform product.
 - Do not document unsupported chat platforms.
 - When changing public config, install, release, or command behavior, update README/INSTALL/config examples and this file together.
-- Keep the package spelling `dirextalk` unless the package is intentionally renamed across npm, docs, release tooling, and deployer integration.
+- Keep the package spelling `dirextalk-connect` unless the package is intentionally renamed across npm, docs, release tooling, and deployer integration.

@@ -7,7 +7,7 @@ Chat with your AI dev assistant from anywhere.
 ## Install
 
 ```bash
-npm install -g dirextalk
+npm install -g dirextalk-connect
 ```
 
 ## Usage

@@ -65,7 +65,7 @@ if (needsReinstall()) {
       cwd: __dirname,
     });
   } catch {
-    console.error("[dirextalk-connect] Auto-install failed. Run manually: npm uninstall -g dirextalk && npm install -g dirextalk");
+    console.error("[dirextalk-connect] Auto-install failed. Run manually: npm uninstall -g dirextalk-connect && npm install -g dirextalk-connect");
     process.exit(1);
   }
 }

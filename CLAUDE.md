@@ -7,5 +7,5 @@ Use `AGENTS.md` as the current development contract. The important invariants ar
 - only `platform/matrix` is supported;
 - config validation rejects non-Matrix project platforms;
 - `room_id` must point to the real Dirextalk agents room;
-- packaging uses `dirextalk` and the `dirextalk-connect` binary;
+- packaging uses `dirextalk-connect` and the `dirextalk-connect` binary;
 - release and update URLs point at `YingSuiAI/dirextalk-connect`.

@@ -560,7 +560,7 @@ func comparePreRelease(a, b string) int {
 }
 
 // syncNpmPackageVersion detects if the binary lives inside an npm package
-// (node_modules/dirextalk/bin/) and updates the package.json version to
+// (node_modules/dirextalk-connect/bin/) and updates the package.json version to
 // match the newly installed binary. Without this, the npm wrapper's run.js
 // would see a version mismatch and re-download the old version on next run.
 func syncNpmPackageVersion(execPath, newVer string) {
@@ -582,7 +582,7 @@ func syncNpmPackageVersion(execPath, newVer string) {
 	}
 
 	name, _ := pkg["name"].(string)
-	if name != "dirextalk" {
+	if name != "dirextalk-connect" {
 		return
 	}
 
@@ -604,7 +604,7 @@ func syncNpmPackageVersion(execPath, newVer string) {
 	if err := os.WriteFile(pkgJSON, out, 0o644); err != nil {
 		slog.Warn("update: failed to sync npm package.json version", "error", err)
 		fmt.Println("⚠️  Note: npm package version not synced. If the next run re-downloads an old version,")
-		fmt.Println("   please run: npm update -g dirextalk")
+		fmt.Println("   please run: npm update -g dirextalk-connect")
 	} else {
 		slog.Debug("update: synced npm package.json version", "old", oldVer, "new", newVer)
 	}

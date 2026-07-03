@@ -11,7 +11,7 @@ Use `dirextalk-deployer`. It calls Dirextalk `agent.matrix_session.create`, writ
 Via npm:
 
 ```bash
-npm install -g dirextalk
+npm install -g dirextalk-connect
 ```
 
 Via Homebrew:

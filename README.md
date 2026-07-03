@@ -9,7 +9,7 @@ This fork keeps the cc-connect agent runtime and Matrix transport, and removes t
 Via npm:
 
 ```bash
-npm install -g dirextalk
+npm install -g dirextalk-connect
 ```
 
 Via Homebrew:

@@ -9,7 +9,7 @@ Dirextalk 专用 Matrix 桥接器，用于把本地 coding agent 接入当前 Di
 npm:
 
 ```bash
-npm install -g dirextalk
+npm install -g dirextalk-connect
 ```
 
 Homebrew:
