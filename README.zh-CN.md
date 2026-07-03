@@ -21,10 +21,10 @@ brew install dirextalk-connect
 GitHub Releases:
 
 ```bash
-curl -L -o dirextalk-connect.tar.gz https://github.com/YingSuiAI/dirextalk-connect/releases/latest/download/dirextalk-connect-v1.3.17-linux-amd64.tar.gz
+curl -L -o dirextalk-connect.tar.gz https://github.com/YingSuiAI/dirextalk-connect/releases/latest/download/dirextalk-connect-v1.3.18-linux-amd64.tar.gz
 tar xzf dirextalk-connect.tar.gz
-chmod +x dirextalk-connect-v1.3.17-linux-amd64
-sudo mv dirextalk-connect-v1.3.17-linux-amd64 /usr/local/bin/dirextalk-connect
+chmod +x dirextalk-connect-v1.3.18-linux-amd64
+sudo mv dirextalk-connect-v1.3.18-linux-amd64 /usr/local/bin/dirextalk-connect
 ```
 
 源码构建:

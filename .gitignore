@@ -2,6 +2,7 @@
 # Binary outputs
 # ============================================================================
 /cc-connect
+/dirextalk-connect
 cc-connect.bak-*
 *.exe
 *.exe~
