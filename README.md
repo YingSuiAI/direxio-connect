@@ -89,7 +89,7 @@ dirextalk-connect daemon install --config /path/to/config.toml --force
 ## Dirextalk Requirements
 
 - The Matrix user must be the local `@agent:<server>` identity, not the portal owner.
-- `room_id` must be the real persisted Dirextalk `agent_room_id`; pseudo ids such as `!agent:<domain>` are rejected by deployer wiring.
+- `room_id` is required and must be the real persisted Dirextalk `agent_room_id`; the bridge rejects legacy pseudo ids such as `!agent:<domain>`.
 - Only `type = "matrix"` is supported.
 - Voice messages require `[speech]` with a working speech-to-text provider key. After transcription, the text is sent through the same agent-room conversation path as a normal text message.
 - Other chat platforms from upstream cc-connect are intentionally removed.

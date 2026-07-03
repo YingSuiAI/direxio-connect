@@ -57,6 +57,7 @@ auto_verify = false
 - `admin_from` must use full Matrix user IDs such as `@owner:a5.dirextalk.ai`. Matrix sender matching is exact and case-insensitive after trimming.
 - If `admin_from` is empty, privileged commands such as `/dir`, `/shell`, `/show`, `/restart`, `/upgrade`, and `/diff` are blocked by default.
 - Do not use `admin_from = "*"` in generated Dirextalk configs.
+- Matrix `room_id` is required. Do not rely on `allowed_room_id` as a fallback, and do not use legacy pseudo ids such as `!agent:<server>`.
 - `/dir reset` must restore the configured `work_dir` and clear the runtime directory override in `data_dir/projects/<project>.state.json`. In multi-workspace mode, clear only the matching workspace override.
 - Runtime state under `data_dir` is not source code and should not be committed.
 

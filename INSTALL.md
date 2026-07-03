@@ -64,6 +64,8 @@ auto_join = false
 auto_verify = false
 ```
 
+`room_id` is required and must be the real persisted Dirextalk `agent_room_id`. Legacy pseudo ids such as `!agent:<domain>` are rejected.
+
 Start foreground:
 
 ```bash
