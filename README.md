@@ -21,7 +21,7 @@ brew install dirextalk-connect
 From GitHub Releases:
 
 ```bash
-curl -L -o dirextalk-connect.tar.gz https://github.com/YingSuiAI/dirextalk-connect/releases/latest/download/dirextalk-connect-v1.3.18-linux-amd64.tar.gz
+curl -L -o dirextalk-connect.tar.gz https://github.com/YingSuiAI/dirextalk-connect/releases/latest/download/dirextalk-connect-v1.3.19-linux-amd64.tar.gz
 tar xzf dirextalk-connect.tar.gz
 chmod +x dirextalk-connect
 sudo mv dirextalk-connect /usr/local/bin/dirextalk-connect

@@ -2,8 +2,9 @@
 
 "use strict";
 
-const { execSync } = require("child_process");
+const { execFileSync, execSync } = require("child_process");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const https = require("https");
 const http = require("http");
@@ -52,7 +53,7 @@ function fetch(url, redirects = 5) {
   return new Promise((resolve, reject) => {
     if (redirects <= 0) return reject(new Error("Too many redirects"));
     const mod = url.startsWith("https") ? https : http;
-    mod
+    const req = mod
       .get(url, { headers: { "User-Agent": "dirextalk-connect-npm" } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           return resolve(fetch(res.headers.location, redirects - 1));
@@ -67,6 +68,9 @@ function fetch(url, redirects = 5) {
         res.on("error", reject);
       })
       .on("error", reject);
+    req.setTimeout(30_000, () => {
+      req.destroy(new Error(`timeout after 30s for ${url}`));
+    });
   });
 }
 
@@ -97,6 +101,69 @@ async function download(urls) {
       `  Tried: ${urls.join(", ")}\n` +
       `  You can download manually from https://github.com/${GITHUB_REPO}/releases`
   );
+}
+
+function psQuote(s) {
+  return `'${s.replace(/'/g, "''")}'`;
+}
+
+async function downloadWithSystemTool(url) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "dirextalk-connect-download-"));
+  const tmpFile = path.join(tmpDir, "asset");
+  try {
+    try {
+      execFileSync("curl", [
+        "-L",
+        "--fail",
+        "--retry",
+        "3",
+        "--connect-timeout",
+        "20",
+        "--max-time",
+        "300",
+        "-o",
+        tmpFile,
+        url,
+      ], { stdio: "pipe", timeout: 330_000 });
+      return fs.readFileSync(tmpFile);
+    } catch (curlErr) {
+      if (process.platform !== "win32") {
+        throw curlErr;
+      }
+      const script =
+        "$ProgressPreference = 'SilentlyContinue'; " +
+        `Invoke-WebRequest -Uri ${psQuote(url)} -OutFile ${psQuote(tmpFile)} -MaximumRedirection 5`;
+      execFileSync("powershell", [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script,
+      ], { stdio: "pipe", timeout: 330_000 });
+      return fs.readFileSync(tmpFile);
+    }
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+async function downloadWithFallback(urls, opts = {}) {
+  const primaryDownload = opts.primaryDownload || download;
+  const systemDownload = opts.systemDownload || downloadWithSystemTool;
+  try {
+    return await primaryDownload(urls);
+  } catch (primaryErr) {
+    console.warn(`[${LOG_PREFIX}] Built-in downloader failed: ${primaryErr.message}`);
+    for (const url of urls) {
+      try {
+        console.log(`[${LOG_PREFIX}] Trying system downloader for ${url}`);
+        return await systemDownload(url);
+      } catch (fallbackErr) {
+        console.warn(`[${LOG_PREFIX}] System downloader failed: ${fallbackErr.message}`);
+      }
+    }
+    throw primaryErr;
+  }
 }
 
 function extractTarGz(buffer, destDir, binaryName) {
@@ -207,7 +274,7 @@ async function main() {
   }
 
   const urls = getDownloadURLs(filename);
-  const data = await download(urls);
+  const data = await downloadWithFallback(urls);
 
   if (ext === ".tar.gz") {
     extractTarGz(data, binDir, binaryName);
