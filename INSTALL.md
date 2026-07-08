@@ -1,6 +1,6 @@
 # dirextalk-connect Install
 
-`dirextalk-connect` is distributed for Dirextalk only. The supported bridge target is the Dirextalk Matrix agent room.
+`dirextalk-connect` is distributed for Dirextalk only. The supported bridge target is the Dirextalk Matrix agent room. The release binary is agent-backend neutral and should include all supported local coding agent adapters already present in this repository.
 
 ## Recommended
 
@@ -23,18 +23,18 @@ brew install dirextalk-connect
 Download binary from GitHub Releases:
 
 ```bash
-curl -L -o dirextalk-connect.tar.gz https://github.com/YingSuiAI/dirextalk-connect/releases/latest/download/dirextalk-connect-v1.3.19-linux-amd64.tar.gz
+curl -L -o dirextalk-connect.tar.gz https://github.com/YingSuiAI/dirextalk-connect/releases/latest/download/dirextalk-connect-v1.3.20-linux-amd64.tar.gz
 tar xzf dirextalk-connect.tar.gz
-chmod +x dirextalk-connect-v1.3.19-linux-amd64
-sudo mv dirextalk-connect-v1.3.19-linux-amd64 /usr/local/bin/dirextalk-connect
+chmod +x dirextalk-connect-v1.3.20-linux-amd64
+sudo mv dirextalk-connect-v1.3.20-linux-amd64 /usr/local/bin/dirextalk-connect
 ```
 
 Build from source:
 
 ```bash
 git clone https://github.com/YingSuiAI/dirextalk-connect.git
-cd cc-connect
-make build AGENTS=codex PLATFORMS_INCLUDE=matrix
+cd dirextalk-connect
+make build PLATFORMS_INCLUDE=matrix
 ```
 
 ## Config
@@ -44,7 +44,7 @@ make build AGENTS=codex PLATFORMS_INCLUDE=matrix
 name = "dirextalk-agent-room"
 
 [projects.agent]
-type = "codex"
+type = "<agent-backend>"
 
 [projects.agent.options]
 work_dir = "/path/to/project"
@@ -63,6 +63,8 @@ group_reply_all = true
 auto_join = false
 auto_verify = false
 ```
+
+Set `<agent-backend>` to the runtime you want to bridge, such as `acp`, `claudecode`, `codex`, `gemini`, `cursor`, `copilot`, `qoder`, or `opencode`.
 
 `room_id` is required and must be the real persisted Dirextalk `agent_room_id`. Legacy pseudo ids such as `!agent:<domain>` are rejected.
 

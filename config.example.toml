@@ -28,7 +28,9 @@ window_secs = 60
 name = "dirextalk-agent-room"
 
 [projects.agent]
-type = "codex"
+type = "<agent-backend>"
+# Replace <agent-backend> with the local runtime to bridge, for example:
+# acp, claudecode, codex, gemini, cursor, copilot, qoder, or opencode.
 # For Hermes ACP, replace this agent block with:
 # [projects.agent]
 # type = "acp"

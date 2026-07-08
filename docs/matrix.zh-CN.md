@@ -13,7 +13,7 @@
 name = "dirextalk-agent-room"
 
 [projects.agent]
-type = "codex"
+type = "<agent-backend>"
 
 [projects.agent.options]
 work_dir = "/path/to/project"
@@ -32,6 +32,8 @@ group_reply_all = true
 auto_join = false
 auto_verify = false
 ```
+
+将 `<agent-backend>` 替换为要桥接的本地运行时，例如 `acp`、`claudecode`、`codex`、`gemini`、`cursor`、`copilot`、`qoder`、`opencode`。
 
 ## 运行规则
 

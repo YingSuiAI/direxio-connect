@@ -4,6 +4,8 @@ Dirextalk-only Matrix bridge for connecting a local coding agent to the current 
 
 This fork keeps the cc-connect agent runtime and Matrix transport, and removes the upstream multi-platform chat integrations. Dirextalk deployment should create a Matrix session for the local `@agent:<server>` user, write a Matrix-only config, and run `dirextalk-connect` against the real `agent_room_id`.
 
+The binary is agent-backend neutral. Release builds include all supported local coding agent backends, including ACP-compatible agents, Claude Code, Codex, Gemini, Cursor, Copilot, Qoder, OpenCode, and similar runtimes already present in this repository.
+
 ## Install
 
 Via npm:
@@ -21,18 +23,18 @@ brew install dirextalk-connect
 From GitHub Releases:
 
 ```bash
-curl -L -o dirextalk-connect.tar.gz https://github.com/YingSuiAI/dirextalk-connect/releases/latest/download/dirextalk-connect-v1.3.19-linux-amd64.tar.gz
+curl -L -o dirextalk-connect.tar.gz https://github.com/YingSuiAI/dirextalk-connect/releases/latest/download/dirextalk-connect-v1.3.20-linux-amd64.tar.gz
 tar xzf dirextalk-connect.tar.gz
-chmod +x dirextalk-connect
-sudo mv dirextalk-connect /usr/local/bin/dirextalk-connect
+chmod +x dirextalk-connect-v1.3.20-linux-amd64
+sudo mv dirextalk-connect-v1.3.20-linux-amd64 /usr/local/bin/dirextalk-connect
 ```
 
 Build from source:
 
 ```bash
 git clone https://github.com/YingSuiAI/dirextalk-connect.git
-cd connect
-make build AGENTS=codex PLATFORMS_INCLUDE=matrix
+cd dirextalk-connect
+make build PLATFORMS_INCLUDE=matrix
 ```
 
 ## Matrix Config
@@ -54,7 +56,7 @@ api_key = "speech-to-text-api-key"
 name = "dirextalk-agent-room"
 
 [projects.agent]
-type = "codex"
+type = "<agent-backend>"
 
 [projects.agent.options]
 work_dir = "/path/to/project"
@@ -73,6 +75,8 @@ group_reply_all = true
 auto_join = false
 auto_verify = false
 ```
+
+Set `<agent-backend>` to the local runtime you want to bridge. Supported backend names include `acp`, `claudecode`, `codex`, `gemini`, `cursor`, `copilot`, `qoder`, and `opencode` when those adapters are built into the binary.
 
 Run:
 

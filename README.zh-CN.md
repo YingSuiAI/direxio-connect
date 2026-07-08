@@ -4,6 +4,8 @@ Dirextalk 专用 Matrix 桥接器，用于把本地 coding agent 接入当前 Di
 
 这个分支保留 cc-connect 的 agent runtime 和 Matrix transport，删除上游多聊天平台集成。Dirextalk 部署流程应该为本地 `@agent:<server>` 用户创建 Matrix session，写入 Matrix-only 配置，并让 `dirextalk-connect` 只监听真实的 `agent_room_id`。
 
+发布二进制必须保持 agent 后端中立，默认包含本仓库已有的所有本地 coding agent 后端，包括 ACP 兼容 agent、Claude Code、Codex、Gemini、Cursor、Copilot、Qoder、OpenCode 等运行时。
+
 ## 安装
 
 npm:
@@ -21,18 +23,18 @@ brew install dirextalk-connect
 GitHub Releases:
 
 ```bash
-curl -L -o dirextalk-connect.tar.gz https://github.com/YingSuiAI/dirextalk-connect/releases/latest/download/dirextalk-connect-v1.3.19-linux-amd64.tar.gz
+curl -L -o dirextalk-connect.tar.gz https://github.com/YingSuiAI/dirextalk-connect/releases/latest/download/dirextalk-connect-v1.3.20-linux-amd64.tar.gz
 tar xzf dirextalk-connect.tar.gz
-chmod +x dirextalk-connect-v1.3.19-linux-amd64
-sudo mv dirextalk-connect-v1.3.19-linux-amd64 /usr/local/bin/dirextalk-connect
+chmod +x dirextalk-connect-v1.3.20-linux-amd64
+sudo mv dirextalk-connect-v1.3.20-linux-amd64 /usr/local/bin/dirextalk-connect
 ```
 
 源码构建:
 
 ```bash
 git clone https://github.com/YingSuiAI/dirextalk-connect.git
-cd cc-connect
-make build AGENTS=codex PLATFORMS_INCLUDE=matrix
+cd dirextalk-connect
+make build PLATFORMS_INCLUDE=matrix
 ```
 
 ## Matrix 配置
@@ -44,7 +46,7 @@ make build AGENTS=codex PLATFORMS_INCLUDE=matrix
 name = "dirextalk-agent-room"
 
 [projects.agent]
-type = "codex"
+type = "<agent-backend>"
 
 [projects.agent.options]
 work_dir = "/path/to/project"
@@ -63,6 +65,8 @@ group_reply_all = true
 auto_join = false
 auto_verify = false
 ```
+
+将 `<agent-backend>` 替换为要桥接的本地运行时。默认发布构建会包含已有适配器，例如 `acp`、`claudecode`、`codex`、`gemini`、`cursor`、`copilot`、`qoder`、`opencode`。
 
 运行:
 

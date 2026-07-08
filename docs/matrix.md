@@ -13,7 +13,7 @@ Do not configure a public Matrix account or a personal Element access token. The
 name = "dirextalk-agent-room"
 
 [projects.agent]
-type = "codex"
+type = "<agent-backend>"
 
 [projects.agent.options]
 work_dir = "/path/to/project"
@@ -32,6 +32,8 @@ group_reply_all = true
 auto_join = false
 auto_verify = false
 ```
+
+Replace `<agent-backend>` with the local runtime to bridge, for example `acp`, `claudecode`, `codex`, `gemini`, `cursor`, `copilot`, `qoder`, or `opencode`.
 
 ## Runtime Rules
 

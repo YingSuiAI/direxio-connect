@@ -66,12 +66,14 @@ auto_verify = false
 
 - Preserve explicit command configuration. If `[projects.agent.options].cmd` and extra args are configured, the backend must use them instead of hardcoding a binary name.
 - Keep app-server and stdio paths platform-neutral. Windows users must be able to run `dirextalk-connect.exe` from PowerShell without WSL-only assumptions.
-- Agent backend fixes should include focused tests in the owning backend package, for example `go test ./agent/codex -count=1` for Codex backend changes.
+- Agent backend fixes should include focused tests in the owning backend package, for example `go test ./agent/<backend> -count=1` for the changed backend.
 - Do not silently drop streaming, card, Markdown, permission, or usage-reporting capabilities when adapting an agent backend.
+- Before development and before any build or release, confirm the change keeps agent backend support neutral. Do not use `AGENTS=<single-agent>` for generic builds, release assets, npm packaging, or docs unless the user explicitly asks for a narrow debug binary.
 
 ## Packaging And Release
 
 - Version bumps must keep these files in sync: `Makefile`, `npm/package.json`, README/INSTALL references, and release asset names.
+- Generic release assets must include all supported local coding agent backends. `make build PLATFORMS_INCLUDE=matrix` and `make release-all` are the normal paths; `AGENTS=<name>` is only for explicit narrow debug builds.
 - Release assets must use the `dirextalk-connect` name and the `YingSuiAI/dirextalk-connect` repository.
 - The npm installer must download from GitHub Releases and should tolerate transient network failures with retries.
 - Before claiming npm install works, verify a real install of the just-published package, for example:
@@ -84,7 +86,8 @@ npm install --prefix <temp-dir> dirextalk-connect@<version>
 - Use `gh` for GitHub releases when available. A typical release verification path is:
 
 ```bash
-make build AGENTS=codex PLATFORMS_INCLUDE=matrix
+go test ./tests/release_local/release_build_contract -count=1
+make build PLATFORMS_INCLUDE=matrix
 node --check npm/install.js
 npm pack --dry-run --prefix npm
 gh release view v<version> --repo YingSuiAI/dirextalk-connect
@@ -106,9 +109,10 @@ Choose validation based on the changed surface:
 
 ```bash
 go test ./config ./core ./platform/matrix -count=1
-go test ./agent/codex -count=1
+go test ./agent/<changed-backend> -count=1
 go test ./cmd/cc-connect -count=1
-make build AGENTS=codex PLATFORMS_INCLUDE=matrix
+go test ./tests/release_local/release_build_contract -count=1
+make build PLATFORMS_INCLUDE=matrix
 node --check npm/install.js
 npm pack --dry-run --prefix npm
 git diff --check
