@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -311,6 +312,106 @@ func TestHandleMessage_MixedDeltaAndNonDelta(t *testing.T) {
 	}
 }
 
+func TestEnsureGeminiMCPConfigWritesGlobalSettings(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	if err := ensureGeminiMCPConfig(cfg); err != nil {
+		t.Fatalf("ensureGeminiMCPConfig: %v", err)
+	}
+
+	settingsPath := geminiMCPSettingsPath(home)
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", settingsPath, err)
+	}
+
+	var parsed struct {
+		MCPServers map[string]struct {
+			HTTPURL string            `json:"httpUrl"`
+			Headers map[string]string `json:"headers"`
+			Type    string            `json:"type"`
+			URL     string            `json:"url"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	server := parsed.MCPServers["dirextalk_d1"]
+	if server.HTTPURL != "https://d1.dirextalk.ai/mcp" {
+		t.Fatalf("httpUrl = %q", server.HTTPURL)
+	}
+	if server.Headers["Authorization"] != "Bearer agent-token" {
+		t.Fatalf("Authorization header = %q", server.Headers["Authorization"])
+	}
+	if server.Headers["DIREXTALK-Agent-Node-Id"] != "node-1" {
+		t.Fatalf("node header = %q", server.Headers["DIREXTALK-Agent-Node-Id"])
+	}
+	if server.Type != "" || server.URL != "" {
+		t.Fatalf("should not write legacy type/url fields: %#v", server)
+	}
+}
+
+func TestEnsureGeminiMCPConfigPreservesSettingsAndAllowsServer(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	settingsPath := geminiMCPSettingsPath(home)
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	existing := `{
+  "theme": "Default",
+  "mcp": {
+    "allowed": ["existing"],
+    "excluded": ["dirextalk-d1", "other"]
+  },
+  "mcpServers": {
+    "existing": {"command": "node"}
+  }
+}`
+	if err := os.WriteFile(settingsPath, []byte(existing), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := core.MCPConfigFromAgentToken("dirextalk-d1", "https://d1.dirextalk.ai/mcp", "agent-token", "")
+	if err := ensureGeminiMCPConfig(cfg); err != nil {
+		t.Fatalf("ensureGeminiMCPConfig: %v", err)
+	}
+
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if parsed["theme"] != "Default" {
+		t.Fatalf("existing top-level setting not preserved: %#v", parsed)
+	}
+	servers, ok := parsed["mcpServers"].(map[string]any)
+	if !ok {
+		t.Fatalf("mcpServers type = %T", parsed["mcpServers"])
+	}
+	if _, ok := servers["existing"]; !ok {
+		t.Fatalf("existing server not preserved: %#v", servers)
+	}
+	if _, ok := servers["dirextalk-d1"]; !ok {
+		t.Fatalf("dirextalk server missing: %#v", servers)
+	}
+	mcp, ok := parsed["mcp"].(map[string]any)
+	if !ok {
+		t.Fatalf("mcp type = %T", parsed["mcp"])
+	}
+	if !jsonArrayContainsString(mcp["allowed"], "dirextalk-d1") {
+		t.Fatalf("allowed should include dirextalk-d1: %#v", mcp["allowed"])
+	}
+	if jsonArrayContainsString(mcp["excluded"], "dirextalk-d1") {
+		t.Fatalf("excluded should not include dirextalk-d1: %#v", mcp["excluded"])
+	}
+}
+
 func TestHandleInit_StoresSessionID(t *testing.T) {
 	gs := &geminiSession{
 		events: make(chan core.Event, 64),
@@ -497,7 +598,7 @@ func TestComputeLineDiff(t *testing.T) {
 }
 
 func TestGeminiSession_ContinueSessionTreatedAsFresh(t *testing.T) {
-	s, err := newGeminiSession(context.Background(), "echo", nil, "/tmp", "", "default", core.ContinueSession, nil, 0)
+	s, err := newGeminiSession(context.Background(), "echo", nil, "/tmp", "", "default", core.ContinueSession, nil, 0, core.MCPConfig{})
 	if err != nil {
 		t.Fatalf("newGeminiSession: %v", err)
 	}

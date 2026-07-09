@@ -32,6 +32,7 @@ type geminiSession struct {
 	mode      string
 	timeout   time.Duration
 	extraEnv  []string
+	mcpConfig core.MCPConfig
 	events    chan core.Event
 	chatID    atomic.Value // stores string — Gemini session ID
 	ctx       context.Context
@@ -42,7 +43,7 @@ type geminiSession struct {
 	pendingMsgs []string // buffered assistant messages awaiting classification
 }
 
-func newGeminiSession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string, timeout time.Duration) (*geminiSession, error) {
+func newGeminiSession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string, timeout time.Duration, mcpConfig core.MCPConfig) (*geminiSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	gs := &geminiSession{
@@ -53,6 +54,7 @@ func newGeminiSession(ctx context.Context, cmd string, extraArgs []string, workD
 		mode:      mode,
 		timeout:   timeout,
 		extraEnv:  extraEnv,
+		mcpConfig: mcpConfig,
 		events:    make(chan core.Event, 64),
 		ctx:       sessionCtx,
 		cancel:    cancel,
@@ -152,6 +154,9 @@ func (gs *geminiSession) Send(prompt string, images []core.ImageAttachment, file
 	// Pass prompt via stdin instead of -p flag to preserve newlines.
 	// The -p flag can truncate at newline characters in some Gemini CLI versions.
 	args = append(args, "-p", "-")
+	if err := ensureGeminiMCPConfig(gs.mcpConfig); err != nil {
+		return fmt.Errorf("geminiSession: configure MCP: %w", err)
+	}
 
 	// Add timeout for each turn to prevent hanging processes
 	var cancel context.CancelFunc
@@ -260,6 +265,126 @@ func (gs *geminiSession) readLoop(ctx context.Context, cmd *exec.Cmd, stdout io.
 			return
 		}
 	}
+}
+
+func ensureGeminiMCPConfig(cfg core.MCPConfig) error {
+	if !cfg.Enabled() {
+		return nil
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot determine home dir: %w", err)
+	}
+	return writeGeminiMCPSettings(geminiMCPSettingsPath(homeDir), cfg)
+}
+
+func geminiMCPSettingsPath(homeDir string) string {
+	return filepath.Join(homeDir, ".gemini", "settings.json")
+}
+
+func writeGeminiMCPSettings(path string, cfg core.MCPConfig) error {
+	doc := map[string]any{}
+	if data, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(data)) > 0 {
+		if err := json.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("read Gemini settings %s: %w", path, err)
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read Gemini settings %s: %w", path, err)
+	}
+
+	servers, _ := doc["mcpServers"].(map[string]any)
+	if servers == nil {
+		servers = map[string]any{}
+	}
+	headers := map[string]string{
+		"Authorization": cfg.Authorization,
+	}
+	if cfg.NodeID != "" {
+		headers["DIREXTALK-Agent-Node-Id"] = cfg.NodeID
+	}
+	servers[cfg.ServerName] = map[string]any{
+		"httpUrl": cfg.URL,
+		"headers": headers,
+	}
+	doc["mcpServers"] = servers
+	allowGeminiMCPServer(doc, cfg.ServerName)
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create Gemini settings dir %s: %w", filepath.Dir(path), err)
+	}
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		return fmt.Errorf("encode Gemini settings %s: %w", path, err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".settings-*.json")
+	if err != nil {
+		return fmt.Errorf("create temp Gemini settings %s: %w", path, err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod temp Gemini settings %s: %w", tmpPath, err)
+	}
+	if _, err := tmp.Write(out.Bytes()); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temp Gemini settings %s: %w", tmpPath, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp Gemini settings %s: %w", tmpPath, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replace Gemini settings %s: %w", path, err)
+	}
+	return nil
+}
+
+func allowGeminiMCPServer(doc map[string]any, serverName string) {
+	mcp, _ := doc["mcp"].(map[string]any)
+	if mcp == nil {
+		return
+	}
+	if allowed, ok := mcp["allowed"].([]any); ok {
+		mcp["allowed"] = appendStringIfMissing(allowed, serverName)
+	}
+	if excluded, ok := mcp["excluded"].([]any); ok {
+		mcp["excluded"] = removeString(excluded, serverName)
+	}
+}
+
+func appendStringIfMissing(values []any, want string) []any {
+	if jsonArrayContainsString(values, want) {
+		return values
+	}
+	return append(values, want)
+}
+
+func removeString(values []any, remove string) []any {
+	result := values[:0]
+	for _, value := range values {
+		if s, ok := value.(string); ok && s == remove {
+			continue
+		}
+		result = append(result, value)
+	}
+	return result
+}
+
+func jsonArrayContainsString(raw any, want string) bool {
+	values, ok := raw.([]any)
+	if !ok {
+		return false
+	}
+	for _, value := range values {
+		if s, ok := value.(string); ok && s == want {
+			return true
+		}
+	}
+	return false
 }
 
 // Gemini CLI stream-json event types:

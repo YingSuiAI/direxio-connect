@@ -40,6 +40,7 @@ type Agent struct {
 	providers    []core.ProviderConfig
 	activeIdx    int
 	sessionEnv   []string
+	mcpConfig    core.MCPConfig
 	mu           sync.RWMutex
 }
 
@@ -84,6 +85,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		configEnv:    core.ParseConfigEnv(opts),
 		timeout:      timeout,
 		activeIdx:    -1,
+		mcpConfig:    core.ParseMCPConfig(opts),
 	}, nil
 }
 
@@ -213,6 +215,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	extraArgs := append([]string{}, a.cliExtraArgs...)
 	workDir := a.workDir
 	timeout := a.timeout
+	mcpConfig := a.mcpConfig
 	extraEnv := append([]string(nil), a.configEnv...)
 	extraEnv = append(extraEnv, a.providerEnvLocked()...)
 	extraEnv = append(extraEnv, a.sessionEnv...)
@@ -223,7 +226,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	}
 	a.mu.Unlock()
 
-	return newGeminiSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout)
+	return newGeminiSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout, mcpConfig)
 }
 
 // ListSessions reads sessions from ~/.gemini/tmp/<project_hash>/chats/.
