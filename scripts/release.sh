@@ -47,14 +47,30 @@ if command -v powershell.exe >/dev/null 2>&1; then
   powershell_cmd=powershell.exe
 elif command -v powershell >/dev/null 2>&1; then
   powershell_cmd=powershell
+elif [ -x /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe ]; then
+  powershell_cmd=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
 fi
 
 for arch in amd64 arm64; do
   exe="dist/dirextalk-connect-$tag-windows-$arch.exe"
   zip="dist/dirextalk-connect-$tag-windows-$arch.zip"
   if [ -f "$exe" ] && [ ! -f "$zip" ]; then
-    [ -n "$powershell_cmd" ] || { echo "missing zip asset and no PowerShell fallback: $zip" >&2; exit 1; }
-    "$powershell_cmd" -NoProfile -Command "Compress-Archive -LiteralPath '$exe' -DestinationPath '$zip' -Force"
+    if [ -n "$powershell_cmd" ]; then
+      "$powershell_cmd" -NoProfile -Command "Compress-Archive -LiteralPath '$exe' -DestinationPath '$zip' -Force"
+    elif command -v python3 >/dev/null 2>&1; then
+      python3 - "$exe" "$zip" <<'PY'
+import os
+import sys
+import zipfile
+
+source, target = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    archive.write(source, arcname=os.path.basename(source))
+PY
+    else
+      echo "missing zip asset and no PowerShell or python3 fallback: $zip" >&2
+      exit 1
+    fi
   fi
 done
 
