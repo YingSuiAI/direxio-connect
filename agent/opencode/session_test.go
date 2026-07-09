@@ -61,7 +61,7 @@ func TestOpencodeSessionEntry_Unmarshal(t *testing.T) {
 // the ContinueSession sentinel (__continue__) is not passed as a literal
 // session ID to the CLI. This was fixed in PR #249.
 func TestNewOpencodeSession_ContinueSessionTreatedAsFresh(t *testing.T) {
-	s, err := newOpencodeSession(context.Background(), "echo", nil, "/tmp", "", "default", "", core.ContinueSession, nil)
+	s, err := newOpencodeSession(context.Background(), "echo", nil, "/tmp", "", "default", "", core.ContinueSession, nil, core.MCPConfig{})
 	if err != nil {
 		t.Fatalf("newOpencodeSession: %v", err)
 	}
@@ -69,6 +69,98 @@ func TestNewOpencodeSession_ContinueSessionTreatedAsFresh(t *testing.T) {
 
 	if got := s.CurrentSessionID(); got != "" {
 		t.Errorf("ContinueSession should be treated as fresh: chatID = %q, want empty", got)
+	}
+}
+
+func TestEnsureOpencodeMCPConfigWritesGlobalConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	if err := ensureOpencodeMCPConfig(cfg); err != nil {
+		t.Fatalf("ensureOpencodeMCPConfig: %v", err)
+	}
+
+	configPath := opencodeMCPConfigPath(home)
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", configPath, err)
+	}
+
+	var parsed struct {
+		Schema string `json:"$schema"`
+		MCP    map[string]struct {
+			Type    string            `json:"type"`
+			URL     string            `json:"url"`
+			Enabled bool              `json:"enabled"`
+			OAuth   *bool             `json:"oauth"`
+			Headers map[string]string `json:"headers"`
+		} `json:"mcp"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if parsed.Schema != "https://opencode.ai/config.json" {
+		t.Fatalf("schema = %q", parsed.Schema)
+	}
+	server := parsed.MCP["dirextalk_d1"]
+	if server.Type != "remote" {
+		t.Fatalf("type = %q", server.Type)
+	}
+	if server.URL != "https://d1.dirextalk.ai/mcp" {
+		t.Fatalf("url = %q", server.URL)
+	}
+	if !server.Enabled {
+		t.Fatal("enabled = false")
+	}
+	if server.OAuth == nil || *server.OAuth {
+		t.Fatalf("oauth = %#v, want false", server.OAuth)
+	}
+	if server.Headers["Authorization"] != "Bearer agent-token" {
+		t.Fatalf("Authorization header = %q", server.Headers["Authorization"])
+	}
+	if server.Headers["DIREXTALK-Agent-Node-Id"] != "node-1" {
+		t.Fatalf("node header = %q", server.Headers["DIREXTALK-Agent-Node-Id"])
+	}
+}
+
+func TestEnsureOpencodeMCPConfigPreservesExistingConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := opencodeMCPConfigPath(home)
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	existing := `{"model":"anthropic/claude-sonnet-4-5","mcp":{"existing":{"type":"local","command":["node","server.js"]}}}`
+	if err := os.WriteFile(configPath, []byte(existing), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := core.MCPConfigFromAgentToken("dirextalk-d1", "https://d1.dirextalk.ai/mcp", "agent-token", "")
+	if err := ensureOpencodeMCPConfig(cfg); err != nil {
+		t.Fatalf("ensureOpencodeMCPConfig: %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if parsed["model"] != "anthropic/claude-sonnet-4-5" {
+		t.Fatalf("existing model not preserved: %#v", parsed)
+	}
+	mcp, ok := parsed["mcp"].(map[string]any)
+	if !ok {
+		t.Fatalf("mcp type = %T", parsed["mcp"])
+	}
+	if _, ok := mcp["existing"]; !ok {
+		t.Fatalf("existing MCP not preserved: %#v", mcp)
+	}
+	if _, ok := mcp["dirextalk-d1"]; !ok {
+		t.Fatalf("dirextalk MCP missing: %#v", mcp)
 	}
 }
 

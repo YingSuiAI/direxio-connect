@@ -31,6 +31,7 @@ type opencodeSession struct {
 	mode              string
 	agentName         string
 	extraEnv          []string
+	mcpConfig         core.MCPConfig
 	events            chan core.Event
 	chatID            atomic.Value // stores string — OpenCode session ID
 	ctx               context.Context
@@ -41,7 +42,7 @@ type opencodeSession struct {
 	resultSent        atomic.Bool // true when EventResult has been sent for this turn
 }
 
-func newOpencodeSession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, agentName, resumeID string, extraEnv []string) (*opencodeSession, error) {
+func newOpencodeSession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, agentName, resumeID string, extraEnv []string, mcpConfig core.MCPConfig) (*opencodeSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	s := &opencodeSession{
@@ -52,6 +53,7 @@ func newOpencodeSession(ctx context.Context, cmd string, extraArgs []string, wor
 		mode:      mode,
 		agentName: agentName,
 		extraEnv:  extraEnv,
+		mcpConfig: mcpConfig,
 		events:    make(chan core.Event, 64),
 		ctx:       sessionCtx,
 		cancel:    cancel,
@@ -85,6 +87,9 @@ func (s *opencodeSession) Send(prompt string, images []core.ImageAttachment, fil
 	isResume := chatID != ""
 
 	args := s.buildRunArgs(prompt, imagePaths, chatID)
+	if err := ensureOpencodeMCPConfig(s.mcpConfig); err != nil {
+		return fmt.Errorf("opencodeSession: configure MCP: %w", err)
+	}
 
 	slog.Debug("opencodeSession: launching", "resume", isResume, "args", core.RedactArgs(args))
 
@@ -189,6 +194,87 @@ func (s *opencodeSession) buildRunArgs(prompt string, imagePaths []string, chatI
 	}
 
 	return args
+}
+
+func ensureOpencodeMCPConfig(cfg core.MCPConfig) error {
+	if !cfg.Enabled() {
+		return nil
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot determine home dir: %w", err)
+	}
+	return writeOpencodeMCPConfig(opencodeMCPConfigPath(homeDir), cfg)
+}
+
+func opencodeMCPConfigPath(homeDir string) string {
+	return filepath.Join(homeDir, ".config", "opencode", "opencode.json")
+}
+
+func writeOpencodeMCPConfig(path string, cfg core.MCPConfig) error {
+	doc := map[string]any{}
+	if data, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(data)) > 0 {
+		if err := json.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("read OpenCode config %s: %w", path, err)
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read OpenCode config %s: %w", path, err)
+	}
+
+	if _, ok := doc["$schema"]; !ok {
+		doc["$schema"] = "https://opencode.ai/config.json"
+	}
+	mcp, _ := doc["mcp"].(map[string]any)
+	if mcp == nil {
+		mcp = map[string]any{}
+	}
+	headers := map[string]string{
+		"Authorization": cfg.Authorization,
+	}
+	if cfg.NodeID != "" {
+		headers["DIREXTALK-Agent-Node-Id"] = cfg.NodeID
+	}
+	mcp[cfg.ServerName] = map[string]any{
+		"type":    "remote",
+		"url":     cfg.URL,
+		"enabled": true,
+		"oauth":   false,
+		"headers": headers,
+	}
+	doc["mcp"] = mcp
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create OpenCode config dir %s: %w", filepath.Dir(path), err)
+	}
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		return fmt.Errorf("encode OpenCode config %s: %w", path, err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".opencode-*.json")
+	if err != nil {
+		return fmt.Errorf("create temp OpenCode config %s: %w", path, err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod temp OpenCode config %s: %w", tmpPath, err)
+	}
+	if _, err := tmp.Write(out.Bytes()); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temp OpenCode config %s: %w", tmpPath, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp OpenCode config %s: %w", tmpPath, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replace OpenCode config %s: %w", path, err)
+	}
+	return nil
 }
 
 func (s *opencodeSession) readLoop(cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer) {

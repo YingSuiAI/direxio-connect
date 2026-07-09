@@ -39,6 +39,7 @@ type Agent struct {
 	providers            []core.ProviderConfig
 	activeIdx            int
 	sessionEnv           []string
+	mcpConfig            core.MCPConfig
 	modelCachePath       string
 	persistentModelCache *opencodePersistentModelCache
 	refreshingModelCache bool
@@ -92,6 +93,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		configEnv:            core.ParseConfigEnv(opts),
 		agentName:            agentName,
 		activeIdx:            -1,
+		mcpConfig:            core.ParseMCPConfig(opts),
 		modelCachePath:       modelCachePath,
 		persistentModelCache: persistentModelCache,
 	}, nil
@@ -468,6 +470,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	extraArgs := append([]string{}, a.cliExtraArgs...)
 	workDir := a.workDir
 	agentName := a.agentName
+	mcpConfig := a.mcpConfig
 	extraEnv := append([]string(nil), a.configEnv...)
 	extraEnv = append(extraEnv, a.providerEnvLocked()...)
 	extraEnv = append(extraEnv, a.sessionEnv...)
@@ -478,7 +481,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	}
 	a.mu.Unlock()
 
-	return newOpencodeSession(ctx, cmd, extraArgs, workDir, model, mode, agentName, sessionID, extraEnv)
+	return newOpencodeSession(ctx, cmd, extraArgs, workDir, model, mode, agentName, sessionID, extraEnv, mcpConfig)
 }
 
 // ListSessions runs `opencode session list` and parses the JSON output.
