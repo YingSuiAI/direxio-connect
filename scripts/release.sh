@@ -35,7 +35,10 @@ fi
 
 echo "Building release assets..."
 if ! make release-all; then
-  if command -v powershell.exe >/dev/null 2>&1 || command -v powershell >/dev/null 2>&1; then
+  if command -v powershell.exe >/dev/null 2>&1 ||
+    command -v powershell >/dev/null 2>&1 ||
+    [ -x /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe ] ||
+    command -v python3 >/dev/null 2>&1; then
     echo "make release-all failed; attempting Windows zip fallback..."
   else
     exit 1
