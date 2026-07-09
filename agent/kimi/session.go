@@ -31,6 +31,7 @@ type kimiSession struct {
 	mode      string
 	timeout   time.Duration
 	extraEnv  []string
+	mcpConfig core.MCPConfig
 	events    chan core.Event
 	sessionID atomic.Value // stores string — Kimi session ID
 	ctx       context.Context
@@ -41,7 +42,7 @@ type kimiSession struct {
 	pendingMsgs []string // buffered assistant text messages
 }
 
-func newKimiSession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string, timeout time.Duration) (*kimiSession, error) {
+func newKimiSession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string, mcpConfig core.MCPConfig, timeout time.Duration) (*kimiSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	ks := &kimiSession{
@@ -52,6 +53,7 @@ func newKimiSession(ctx context.Context, cmd string, extraArgs []string, workDir
 		mode:      mode,
 		timeout:   timeout,
 		extraEnv:  extraEnv,
+		mcpConfig: mcpConfig,
 		events:    make(chan core.Event, 64),
 		ctx:       sessionCtx,
 		cancel:    cancel,
@@ -124,30 +126,13 @@ func (ks *kimiSession) Send(prompt string, images []core.ImageAttachment, files 
 		fullPrompt += "\n\n[Attached files saved at: " + strings.Join(fileRefs, ", ") + "]"
 	}
 
-	args := append(append([]string{}, ks.extraArgs...),
-		"--print",
-		"--output-format", "stream-json",
-	)
-
-	switch ks.mode {
-	case "plan":
-		args = append(args, "--plan")
-	case "quiet":
-		args = append(args, "--quiet")
+	mcpConfigFilePath, err := writeKimiMCPConfigFile(ks.mcpConfig)
+	if err != nil {
+		return fmt.Errorf("kimiSession: write MCP config file: %w", err)
 	}
 
 	sid := ks.CurrentSessionID()
-	if sid != "" {
-		args = append(args, "--resume", sid)
-	}
-	if ks.model != "" {
-		args = append(args, "--model", ks.model)
-	}
-	if ks.workDir != "" {
-		args = append(args, "--work-dir", ks.workDir)
-	}
-
-	args = append(args, "--prompt", fullPrompt)
+	args := ks.buildKimiArgs(fullPrompt, sid, mcpConfigFilePath)
 
 	var cancel context.CancelFunc
 	var ctx context.Context
@@ -160,6 +145,9 @@ func (ks *kimiSession) Send(prompt string, images []core.ImageAttachment, files 
 	started := false
 	defer func() {
 		if !started {
+			if mcpConfigFilePath != "" {
+				_ = os.Remove(mcpConfigFilePath)
+			}
 			cancel()
 		}
 	}()
@@ -190,10 +178,76 @@ func (ks *kimiSession) Send(prompt string, images []core.ImageAttachment, files 
 	ks.wg.Add(1)
 	go func() {
 		defer cancel()
-		ks.readLoop(ctx, cmd, stdout, &stderrBuf, append(imageRefs, fileRefs...))
+		tempFiles := append([]string{}, imageRefs...)
+		tempFiles = append(tempFiles, fileRefs...)
+		if mcpConfigFilePath != "" {
+			tempFiles = append(tempFiles, mcpConfigFilePath)
+		}
+		ks.readLoop(ctx, cmd, stdout, &stderrBuf, tempFiles)
 	}()
 
 	return nil
+}
+
+func (ks *kimiSession) buildKimiArgs(fullPrompt, sid, mcpConfigFilePath string) []string {
+	args := append(append([]string{}, ks.extraArgs...),
+		"--print",
+		"--output-format", "stream-json",
+	)
+	if mcpConfigFilePath != "" {
+		args = append(args, "--mcp-config-file", mcpConfigFilePath)
+	}
+
+	switch ks.mode {
+	case "plan":
+		args = append(args, "--plan")
+	case "quiet":
+		args = append(args, "--quiet")
+	}
+
+	if sid != "" {
+		args = append(args, "--resume", sid)
+	}
+	if ks.model != "" {
+		args = append(args, "--model", ks.model)
+	}
+	if ks.workDir != "" {
+		args = append(args, "--work-dir", ks.workDir)
+	}
+
+	return append(args, "--prompt", fullPrompt)
+}
+
+func writeKimiMCPConfigFile(cfg core.MCPConfig) (string, error) {
+	if !cfg.Enabled() {
+		return "", nil
+	}
+	f, err := os.CreateTemp("", "kimi-mcp-*.json")
+	if err != nil {
+		return "", err
+	}
+	path := f.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(path)
+		}
+	}()
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return "", err
+	}
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(cfg.MCPServersConfig()); err != nil {
+		_ = f.Close()
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	cleanup = false
+	return path, nil
 }
 
 func (ks *kimiSession) readLoop(ctx context.Context, cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer, tempFiles []string) {

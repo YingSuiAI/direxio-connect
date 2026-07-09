@@ -2,6 +2,9 @@ package kimi
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,7 +15,7 @@ import (
 
 func TestNewKimiSession(t *testing.T) {
 	ctx := context.Background()
-	ks, err := newKimiSession(ctx, "kimi", nil, "/tmp", "kimi-k2", "default", "resume-123", nil, 0)
+	ks, err := newKimiSession(ctx, "kimi", nil, "/tmp", "kimi-k2", "default", "resume-123", nil, core.MCPConfig{}, 0)
 	require.NoError(t, err)
 	require.NotNil(t, ks)
 	assert.True(t, ks.Alive())
@@ -41,7 +44,7 @@ func TestExtractResumeSessionID(t *testing.T) {
 
 func TestHandleAssistantWithText(t *testing.T) {
 	ctx := context.Background()
-	ks, _ := newKimiSession(ctx, "kimi", nil, "/tmp", "", "default", "", nil, 0)
+	ks, _ := newKimiSession(ctx, "kimi", nil, "/tmp", "", "default", "", nil, core.MCPConfig{}, 0)
 	defer ks.Close()
 
 	ks.handleEvent(map[string]any{
@@ -58,7 +61,7 @@ func TestHandleAssistantWithText(t *testing.T) {
 
 func TestHandleAssistantWithThink(t *testing.T) {
 	ctx := context.Background()
-	ks, _ := newKimiSession(ctx, "kimi", nil, "/tmp", "", "default", "", nil, 0)
+	ks, _ := newKimiSession(ctx, "kimi", nil, "/tmp", "", "default", "", nil, core.MCPConfig{}, 0)
 	defer ks.Close()
 
 	ks.handleEvent(map[string]any{
@@ -78,7 +81,7 @@ func TestHandleAssistantWithThink(t *testing.T) {
 
 func TestHandleAssistantWithToolCalls(t *testing.T) {
 	ctx := context.Background()
-	ks, _ := newKimiSession(ctx, "kimi", nil, "/tmp", "", "default", "", nil, 0)
+	ks, _ := newKimiSession(ctx, "kimi", nil, "/tmp", "", "default", "", nil, core.MCPConfig{}, 0)
 	defer ks.Close()
 
 	ks.handleEvent(map[string]any{
@@ -109,7 +112,7 @@ func TestHandleAssistantWithToolCalls(t *testing.T) {
 
 func TestHandleTool(t *testing.T) {
 	ctx := context.Background()
-	ks, _ := newKimiSession(ctx, "kimi", nil, "/tmp", "", "default", "", nil, 0)
+	ks, _ := newKimiSession(ctx, "kimi", nil, "/tmp", "", "default", "", nil, core.MCPConfig{}, 0)
 	defer ks.Close()
 
 	ks.handleEvent(map[string]any{
@@ -129,7 +132,7 @@ func TestHandleTool(t *testing.T) {
 
 func TestFlushPendingAsText(t *testing.T) {
 	ctx := context.Background()
-	ks, _ := newKimiSession(ctx, "kimi", nil, "/tmp", "", "default", "", nil, 0)
+	ks, _ := newKimiSession(ctx, "kimi", nil, "/tmp", "", "default", "", nil, core.MCPConfig{}, 0)
 	defer ks.Close()
 
 	ks.pendingMsgs = []string{"Hello", " ", "world"}
@@ -144,7 +147,7 @@ func TestFlushPendingAsText(t *testing.T) {
 
 func TestFlushPendingAsThinking(t *testing.T) {
 	ctx := context.Background()
-	ks, _ := newKimiSession(ctx, "kimi", nil, "/tmp", "", "default", "", nil, 0)
+	ks, _ := newKimiSession(ctx, "kimi", nil, "/tmp", "", "default", "", nil, core.MCPConfig{}, 0)
 	defer ks.Close()
 
 	ks.pendingMsgs = []string{"Thinking..."}
@@ -160,6 +163,53 @@ func TestTruncate(t *testing.T) {
 	assert.Equal(t, "hello", truncate("hello", 10))
 	assert.Equal(t, "hello world", truncate("hello world", 11))
 	assert.Equal(t, "hello worl...", truncate("hello world", 10))
+}
+
+func TestWriteKimiMCPConfigFile(t *testing.T) {
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	path, err := writeKimiMCPConfigFile(cfg)
+	require.NoError(t, err)
+	defer os.Remove(path)
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var parsed struct {
+		MCPServers map[string]struct {
+			Type    string            `json:"type"`
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+		} `json:"mcpServers"`
+	}
+	require.NoError(t, json.Unmarshal(data, &parsed))
+	server := parsed.MCPServers["dirextalk_d1"]
+	assert.Equal(t, "http", server.Type)
+	assert.Equal(t, "https://d1.dirextalk.ai/mcp", server.URL)
+	assert.Equal(t, "Bearer agent-token", server.Headers["Authorization"])
+	assert.Equal(t, "node-1", server.Headers["DIREXTALK-Agent-Node-Id"])
+}
+
+func TestBuildKimiArgsIncludesMCPConfigWithoutToken(t *testing.T) {
+	ks := &kimiSession{workDir: "/repo", model: "kimi-k2", mode: "plan"}
+	args := ks.buildKimiArgs("hello", "session-1", "/tmp/kimi-mcp.json")
+	if !containsKimiArgPair(args, "--mcp-config-file", "/tmp/kimi-mcp.json") {
+		t.Fatalf("missing --mcp-config-file arg pair: %v", args)
+	}
+	if strings.Contains(strings.Join(args, "\x00"), "agent-token") {
+		t.Fatalf("argv should not include token: %v", args)
+	}
+}
+
+func containsKimiArgPair(args []string, key, value string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == key && args[i+1] == value {
+			return true
+		}
+	}
+	return false
 }
 
 func drainEvents(ch <-chan core.Event, max int) []core.Event {

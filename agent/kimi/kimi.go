@@ -36,6 +36,7 @@ type Agent struct {
 	cmd          string   // CLI binary name, default "kimi"
 	cliExtraArgs []string // extra args from cmd after the binary name
 	configEnv    []string // env vars from [projects.agent.options.env]
+	mcpConfig    core.MCPConfig
 	timeout      time.Duration
 	providers    []core.ProviderConfig
 	activeIdx    int // -1 = no provider set
@@ -82,6 +83,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		cmd:          cmd,
 		cliExtraArgs: extraArgs,
 		configEnv:    core.ParseConfigEnv(opts),
+		mcpConfig:    core.ParseMCPConfig(opts),
 		timeout:      timeout,
 		activeIdx:    -1,
 	}, nil
@@ -161,6 +163,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	cmd := a.cmd
 	extraArgs := append([]string{}, a.cliExtraArgs...)
 	workDir := a.workDir
+	mcpConfig := a.mcpConfig
 	timeout := a.timeout
 	extraEnv := append([]string(nil), a.configEnv...)
 	extraEnv = append(extraEnv, a.providerEnvLocked()...)
@@ -172,7 +175,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	}
 	a.mu.Unlock()
 
-	return newKimiSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout)
+	return newKimiSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, mcpConfig, timeout)
 }
 
 func (a *Agent) ListSessions(_ context.Context) ([]core.AgentSessionInfo, error) {
