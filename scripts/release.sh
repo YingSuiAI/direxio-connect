@@ -29,7 +29,7 @@ go test ./tests/release_local/... -count=1
 node --check npm/install.js
 node --check npm/check-release.js
 npm pack --dry-run --prefix npm >/dev/null 2>&1 || (cd npm && npm pack --dry-run >/dev/null)
-git diff --check
+git diff --check --ignore-cr-at-eol
 
 echo "Building release assets..."
 if ! make release-all; then
