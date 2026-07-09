@@ -5,7 +5,7 @@
 # "matrix", and the Matrix account should be the local @agent:<server> user
 # returned by Dirextalk agent.matrix_session.create.
 
-language = "zh"
+language = "auto"
 data_dir = "~/.dirextalk-connect"
 
 [log]
@@ -42,6 +42,13 @@ type = "<agent-backend>"
 
 [projects.agent.options]
 work_dir = "/path/to/project"
+# Optional Dirextalk remote MCP. dirextalk-deployer writes these automatically.
+# Codex receives native mcp_servers config, ACP receives session mcpServers,
+# and other backends receive DIREXTALK_MCP_* environment variables.
+# mcp_url = "https://im.example.com/mcp"
+# mcp_server_name = "dirextalk-im_example_com"
+# mcp_agent_token = "dirextalk-agent-token"
+# mcp_node_id = "agent-node-id"
 
 [[projects.platforms]]
 type = "matrix"

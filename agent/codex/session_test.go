@@ -101,7 +101,7 @@ func TestBuildExecArgs_IncludesModelProvider(t *testing.T) {
 }
 
 func TestBuildExecArgs_IncludesMCPConfig(t *testing.T) {
-	cs, err := newCodexSessionWithMCP(context.Background(), "codex", nil, "/tmp/project", "", "", "full-auto", "", "", nil, "", codexMCPConfig{
+	cs, err := newCodexSessionWithMCP(context.Background(), "codex", nil, "/tmp/project", "", "", "full-auto", "", "", nil, "", core.MCPConfig{
 		ServerName:    "dirextalk-d1_dirextalk_ai",
 		URL:           "https://d1.dirextalk.ai/mcp",
 		Authorization: "Bearer fake-agent-token",

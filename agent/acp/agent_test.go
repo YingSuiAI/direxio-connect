@@ -7,7 +7,7 @@ import (
 )
 
 func TestNew_DisplayNameDefault(t *testing.T) {
-	a, err := New(map[string]any{"command": "true"})
+	a, err := New(map[string]any{"command": "go"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestNew_DisplayNameDefault(t *testing.T) {
 
 func TestNew_DisplayNameCustom(t *testing.T) {
 	a, err := New(map[string]any{
-		"command":      "true",
+		"command":      "go",
 		"display_name": "Copilot ACP",
 	})
 	if err != nil {
@@ -31,9 +31,35 @@ func TestNew_DisplayNameCustom(t *testing.T) {
 	}
 }
 
+func TestNew_ParsesMCPConfig(t *testing.T) {
+	a, err := New(map[string]any{
+		"command":         "go",
+		"mcp_server_name": "dirextalk-d1",
+		"mcp_url":         "https://d1.dirextalk.ai/mcp",
+		"mcp_agent_token": "agent-token",
+		"mcp_node_id":     "node-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := a.(*Agent)
+	if !agent.mcpConfig.Enabled() {
+		t.Fatal("MCP config should be enabled")
+	}
+	params := acpSessionParams("/tmp/work", agent.mcpConfig)
+	servers, _ := params["mcpServers"].([]any)
+	if len(servers) != 1 {
+		t.Fatalf("mcpServers = %#v", params["mcpServers"])
+	}
+	server := servers[0].(map[string]any)
+	if server["name"] != "dirextalk-d1" || server["url"] != "https://d1.dirextalk.ai/mcp" {
+		t.Fatalf("server = %#v", server)
+	}
+}
+
 func TestWorkspaceAgentOptions(t *testing.T) {
 	a, err := New(map[string]any{
-		"command":      "true",
+		"command":      "go",
 		"args":         []any{"--acp", "--stdio"},
 		"env":          map[string]any{"FOO": "bar", "COPILOT_VALUE": "a=b"},
 		"auth_method":  "cursor_login",
@@ -52,8 +78,8 @@ func TestWorkspaceAgentOptions(t *testing.T) {
 	}
 	opts := snapshotter.WorkspaceAgentOptions()
 
-	if got, _ := opts["cmd"].(string); got != "true" {
-		t.Fatalf("cmd = %q, want true", got)
+	if got, _ := opts["cmd"].(string); got != "go" {
+		t.Fatalf("cmd = %q, want go", got)
 	}
 	gotArgs, _ := opts["args"].([]string)
 	if len(gotArgs) != 2 || gotArgs[0] != "--acp" || gotArgs[1] != "--stdio" {

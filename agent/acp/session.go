@@ -69,6 +69,7 @@ type acpSessionConfig struct {
 	args            []string
 	extraEnv        []string
 	workDir         string
+	mcpConfig       core.MCPConfig
 	resumeSessionID string
 	authMethod      string
 	initialMode     string           // if non-empty, applied via session/set_mode after session/new
@@ -136,7 +137,7 @@ func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, erro
 		s.alive.Store(false)
 	}()
 
-	if err := s.handshake(cfg.resumeSessionID, cfg.authMethod); err != nil {
+	if err := s.handshake(cfg.resumeSessionID, cfg.authMethod, cfg.mcpConfig); err != nil {
 		_ = s.Close()
 		return nil, err
 	}
@@ -161,7 +162,7 @@ func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, erro
 // handshake runs initialize → optional authenticate → session/load or
 // session/new, and caches any modes the server advertises so
 // SetLiveMode / PermissionModes can answer correctly.
-func (s *acpSession) handshake(resumeSessionID string, authMethod string) error {
+func (s *acpSession) handshake(resumeSessionID string, authMethod string, mcpConfig core.MCPConfig) error {
 	initParams := map[string]any{
 		"protocolVersion": 1,
 		"clientCapabilities": map[string]any{
@@ -206,11 +207,8 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 
 	wantResume := resumeSessionID != "" && resumeSessionID != core.ContinueSession
 	if wantResume && initOut.AgentCapabilities.LoadSession {
-		loadParams := map[string]any{
-			"sessionId":  resumeSessionID,
-			"cwd":        s.workDir,
-			"mcpServers": []any{},
-		}
+		loadParams := acpSessionParams(s.workDir, mcpConfig)
+		loadParams["sessionId"] = resumeSessionID
 		loadRes, err := s.tr.call(s.ctx, "session/load", loadParams)
 		if err != nil {
 			slog.Warn("acp: session/load failed, starting new session", "error", err)
@@ -227,10 +225,7 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 		}
 	}
 
-	newParams := map[string]any{
-		"cwd":        s.workDir,
-		"mcpServers": []any{},
-	}
+	newParams := acpSessionParams(s.workDir, mcpConfig)
 	newRes, err := s.tr.call(s.ctx, "session/new", newParams)
 	if err != nil {
 		return fmt.Errorf("acp: session/new: %w", err)
@@ -248,6 +243,13 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 	s.setACPSessionID(sn.SessionID)
 	s.absorbModes(sn.Modes)
 	return nil
+}
+
+func acpSessionParams(workDir string, mcpConfig core.MCPConfig) map[string]any {
+	return map[string]any{
+		"cwd":        workDir,
+		"mcpServers": mcpConfig.ACPServers(),
+	}
 }
 
 // absorbModes copies a modes block into the session's cache and fans

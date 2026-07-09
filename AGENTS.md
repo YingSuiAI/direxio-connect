@@ -26,7 +26,7 @@ This repository is the Dirextalk-maintained fork of cc-connect. It is a local br
 Generated Dirextalk configs should have this shape:
 
 ```toml
-language = "zh"
+language = "auto"
 data_dir = "<service-dir>/cc-connect/data"
 
 [[projects]]
@@ -39,6 +39,10 @@ type = "<agent-backend>"
 [projects.agent.options]
 work_dir = "<workspace>"
 cmd = "<optional explicit agent executable>"
+mcp_url = "https://<server>/mcp"
+mcp_server_name = "dirextalk-<server>"
+mcp_agent_token = "<service agent token>"
+mcp_node_id = "<agent-node-id>"
 
 [[projects.platforms]]
 type = "matrix"

@@ -30,7 +30,7 @@ type codexSession struct {
 	mode           string
 	baseURL        string // provider base URL; passed as -c openai_base_url=<url>
 	modelProvider  string // Codex model_provider name; passed as -c model_provider=<name>
-	mcpConfig      codexMCPConfig
+	mcpConfig      core.MCPConfig
 	cmd            string   // CLI binary, default "codex"
 	cliExtraArgs   []string // extra args from cmd, prepended before exec args
 	extraEnv       []string
@@ -89,10 +89,10 @@ func prependCodexPromptPreamble(prompt string, preamble string) string {
 }
 
 func newCodexSession(ctx context.Context, cliBin string, cliExtraArgs []string, workDir, model, effort, mode, resumeID, baseURL string, extraEnv []string, modelProvider string, systemPrompt string, appendPrompt string) (*codexSession, error) {
-	return newCodexSessionWithMCP(ctx, cliBin, cliExtraArgs, workDir, model, effort, mode, resumeID, baseURL, extraEnv, modelProvider, codexMCPConfig{}, systemPrompt, appendPrompt)
+	return newCodexSessionWithMCP(ctx, cliBin, cliExtraArgs, workDir, model, effort, mode, resumeID, baseURL, extraEnv, modelProvider, core.MCPConfig{}, systemPrompt, appendPrompt)
 }
 
-func newCodexSessionWithMCP(ctx context.Context, cliBin string, cliExtraArgs []string, workDir, model, effort, mode, resumeID, baseURL string, extraEnv []string, modelProvider string, mcpConfig codexMCPConfig, systemPrompt string, appendPrompt string) (*codexSession, error) {
+func newCodexSessionWithMCP(ctx context.Context, cliBin string, cliExtraArgs []string, workDir, model, effort, mode, resumeID, baseURL string, extraEnv []string, modelProvider string, mcpConfig core.MCPConfig, systemPrompt string, appendPrompt string) (*codexSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	cs := &codexSession{

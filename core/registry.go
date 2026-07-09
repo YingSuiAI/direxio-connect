@@ -58,5 +58,6 @@ func CreateAgent(name string, opts map[string]any) (Agent, error) {
 		}
 		return nil, fmt.Errorf("unknown agent %q, available: %v", name, available)
 	}
+	opts = WithMCPEnvOptions(opts)
 	return f(opts)
 }

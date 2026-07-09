@@ -40,6 +40,8 @@ make build PLATFORMS_INCLUDE=matrix
 ## Config
 
 ```toml
+language = "auto"
+
 [[projects]]
 name = "dirextalk-agent-room"
 
@@ -48,6 +50,11 @@ type = "<agent-backend>"
 
 [projects.agent.options]
 work_dir = "/path/to/project"
+# Optional: dirextalk-deployer writes these automatically for remote MCP.
+mcp_url = "https://example.com/mcp"
+mcp_server_name = "dirextalk-example_com"
+mcp_agent_token = "dirextalk-agent-token"
+mcp_node_id = "agent-node-id"
 
 [[projects.platforms]]
 type = "matrix"

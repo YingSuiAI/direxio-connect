@@ -26,6 +26,7 @@ type Agent struct {
 	staticEnv    map[string]string
 	extraEnv     []string
 	sessionEnv   []string
+	mcpConfig    core.MCPConfig
 	authMethod   string // optional, e.g. "cursor_login" for Cursor CLI (see authenticate RPC)
 	displayName  string // optional, for doctor (default "ACP")
 
@@ -84,6 +85,7 @@ func New(opts map[string]any) (core.Agent, error) {
 	args := parseStringSlice(opts["args"])
 	staticEnv := envMapFromOpts(opts)
 	extra := envPairsFromOpts(opts)
+	mcpConfig := core.ParseMCPConfig(opts)
 	authMethod, _ := opts["auth_method"].(string)
 	authMethod = strings.TrimSpace(authMethod)
 	displayName, _ := opts["display_name"].(string)
@@ -101,6 +103,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		args:         args,
 		staticEnv:    staticEnv,
 		extraEnv:     extra,
+		mcpConfig:    mcpConfig,
 		authMethod:   authMethod,
 		displayName:  displayName,
 		mode:         mode,
@@ -231,6 +234,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	pendingMode := a.mode
 	extra := append([]string(nil), a.extraEnv...)
 	extra = append(extra, a.sessionEnv...)
+	mcpConfig := a.mcpConfig
 	a.mu.RUnlock()
 
 	return newACPSession(ctx, acpSessionConfig{
@@ -238,6 +242,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 		args:            allArgs,
 		extraEnv:        extra,
 		workDir:         workDir,
+		mcpConfig:       mcpConfig,
 		resumeSessionID: sessionID,
 		authMethod:      authMethod,
 		initialMode:     pendingMode,

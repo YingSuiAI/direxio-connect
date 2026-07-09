@@ -152,7 +152,7 @@ type appServerSession struct {
 	cliExtraArgs   []string
 	extraEnv       []string
 	codexHome      string
-	mcpConfig      codexMCPConfig
+	mcpConfig      core.MCPConfig
 	promptPreamble string
 
 	events chan core.Event
@@ -194,7 +194,7 @@ const (
 	appServerUsageRefreshTimeout = 1500 * time.Millisecond
 )
 
-func newAppServerSession(ctx context.Context, url, workDir, model, effort, mode, resumeID, baseURL, modelProvider string, cliBin string, cliExtraArgs []string, extraEnv []string, codexHome string, mcpConfig codexMCPConfig, systemPrompt string, appendPrompt string) (*appServerSession, error) {
+func newAppServerSession(ctx context.Context, url, workDir, model, effort, mode, resumeID, baseURL, modelProvider string, cliBin string, cliExtraArgs []string, extraEnv []string, codexHome string, mcpConfig core.MCPConfig, systemPrompt string, appendPrompt string) (*appServerSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 	s := &appServerSession{
 		url:              url,
