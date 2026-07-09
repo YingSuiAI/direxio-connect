@@ -21,7 +21,7 @@ type StreamPreviewCfg struct {
 func DefaultStreamPreviewCfg() StreamPreviewCfg {
 	return StreamPreviewCfg{
 		Enabled:           true,
-		DisabledPlatforms: nil,
+		DisabledPlatforms: []string{"matrix"},
 		IntervalMs:        1500,
 		MinDeltaChars:     30,
 		MaxChars:          2000,

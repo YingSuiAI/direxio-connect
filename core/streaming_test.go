@@ -230,6 +230,16 @@ func TestStreamPreview_NonUpdaterPlatform(t *testing.T) {
 	}
 }
 
+func TestStreamPreview_DefaultDisablesMatrixEvenWhenUpdater(t *testing.T) {
+	p := &mockUpdaterPlatform{stubPlatformEngine: stubPlatformEngine{n: "matrix"}}
+	cfg := DefaultStreamPreviewCfg()
+
+	sp := newStreamPreview(cfg, p, "ctx", context.Background(), nil)
+	if sp.canPreview() {
+		t.Error("matrix should not stream preview by default because Matrix replacement events appear as separate messages in Dirextalk clients")
+	}
+}
+
 func TestStreamPreview_DiscardDeletesPreview(t *testing.T) {
 	mp := &mockCleanerPlatform{}
 	cfg := StreamPreviewCfg{
