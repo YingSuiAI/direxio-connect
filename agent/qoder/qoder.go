@@ -26,6 +26,7 @@ type Agent struct {
 	model        string
 	mode         string // "default" | "yolo"
 	sessionEnv   []string
+	mcpConfig    core.MCPConfig
 	mu           sync.Mutex
 }
 
@@ -50,6 +51,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		configEnv:    core.ParseConfigEnv(opts),
 		model:        model,
 		mode:         mode,
+		mcpConfig:    core.ParseMCPConfig(opts),
 	}, nil
 }
 
@@ -115,11 +117,12 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	cmd := a.cmd
 	extraArgs := append([]string{}, a.cliExtraArgs...)
 	workDir := a.workDir
+	mcpConfig := a.mcpConfig
 	extraEnv := append([]string(nil), a.configEnv...)
 	extraEnv = append(extraEnv, a.sessionEnv...)
 	a.mu.Unlock()
 
-	return newQoderSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv)
+	return newQoderSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, mcpConfig)
 }
 
 func (a *Agent) ListSessions(_ context.Context) ([]core.AgentSessionInfo, error) {

@@ -2,8 +2,10 @@ package qoder
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -163,6 +165,71 @@ func TestAgent_SetModel(t *testing.T) {
 	if got != "gpt-4" {
 		t.Errorf("model = %q, want %q", got, "gpt-4")
 	}
+}
+
+func TestWriteQoderMCPConfigFile(t *testing.T) {
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	path, err := writeQoderMCPConfigFile(t.TempDir(), cfg)
+	if err != nil {
+		t.Fatalf("writeQoderMCPConfigFile: %v", err)
+	}
+	defer os.Remove(path)
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mode = %o, want 600", got)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var parsed struct {
+		MCPServers map[string]struct {
+			Type    string            `json:"type"`
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	server := parsed.MCPServers["dirextalk_d1"]
+	if server.Type != "http" {
+		t.Fatalf("type = %q", server.Type)
+	}
+	if server.URL != "https://d1.dirextalk.ai/mcp" {
+		t.Fatalf("url = %q", server.URL)
+	}
+	if server.Headers["Authorization"] != "Bearer agent-token" {
+		t.Fatalf("Authorization header = %q", server.Headers["Authorization"])
+	}
+	if server.Headers["DIREXTALK-Agent-Node-Id"] != "node-1" {
+		t.Fatalf("node header = %q", server.Headers["DIREXTALK-Agent-Node-Id"])
+	}
+}
+
+func TestBuildQoderArgsIncludesMCPConfigWithoutToken(t *testing.T) {
+	qs := &qoderSession{workDir: "/repo"}
+	args := qs.buildQoderArgs("hello", "", "/tmp/qoder-mcp.json")
+	if !containsQoderArgPair(args, "--mcp-config", "/tmp/qoder-mcp.json") {
+		t.Fatalf("missing --mcp-config arg pair: %v", args)
+	}
+	if strings.Contains(strings.Join(args, "\x00"), "agent-token") {
+		t.Fatalf("argv should not include token: %v", args)
+	}
+}
+
+func containsQoderArgPair(args []string, key, value string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == key && args[i+1] == value {
+			return true
+		}
+	}
+	return false
 }
 
 // verify Agent implements core.Agent

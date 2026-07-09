@@ -29,6 +29,7 @@ type qoderSession struct {
 	model          string
 	mode           string
 	extraEnv       []string
+	mcpConfig      core.MCPConfig
 	events         chan core.Event
 	sessionID      atomic.Value // stores string
 	ctx            context.Context
@@ -49,7 +50,7 @@ const maxAssistantTextCacheEntries = 1024
 // silently skipped under root).
 func (qs *qoderSession) StartupWarning() string { return qs.startupWarning }
 
-func newQoderSession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string) (*qoderSession, error) {
+func newQoderSession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string, mcpConfig core.MCPConfig) (*qoderSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	qs := &qoderSession{
@@ -59,6 +60,7 @@ func newQoderSession(ctx context.Context, cmd string, extraArgs []string, workDi
 		model:     model,
 		mode:      mode,
 		extraEnv:  extraEnv,
+		mcpConfig: mcpConfig,
 		events:    make(chan core.Event, 64),
 		ctx:       sessionCtx,
 		cancel:    cancel,
@@ -92,24 +94,16 @@ func (qs *qoderSession) Send(prompt string, images []core.ImageAttachment, files
 		return fmt.Errorf("session is closed")
 	}
 
-	args := append(append([]string{}, qs.extraArgs...), "-p", prompt, "-f", "stream-json", "-q", "-w", qs.workDir)
-
 	sid := qs.CurrentSessionID()
-	if sid != "" {
-		args = append(args, "-r", sid)
-	}
-
-	if qs.mode == "yolo" {
-		if os.Geteuid() == 0 {
-			slog.Warn("qoderSession: --dangerously-skip-permissions not allowed under root, skipping flag")
-		} else {
-			args = append(args, "--dangerously-skip-permissions")
+	mcpConfigPath := ""
+	if qs.mcpConfig.Enabled() {
+		var err error
+		mcpConfigPath, err = writeQoderMCPConfigFile("", qs.mcpConfig)
+		if err != nil {
+			return fmt.Errorf("qoderSession: configure MCP: %w", err)
 		}
 	}
-
-	if qs.model != "" {
-		args = append(args, "--model", qs.model)
-	}
+	args := qs.buildQoderArgs(prompt, sid, mcpConfigPath)
 
 	slog.Debug("qoderSession: launching", "resume", sid != "", "args_len", len(args))
 
@@ -128,17 +122,99 @@ func (qs *qoderSession) Send(prompt string, images []core.ImageAttachment, files
 	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Start(); err != nil {
+		if mcpConfigPath != "" {
+			_ = os.Remove(mcpConfigPath)
+		}
 		return fmt.Errorf("qoderSession: start: %w", err)
 	}
 
 	qs.wg.Add(1)
-	go qs.readLoop(cmd, stdout, &stderrBuf)
+	go qs.readLoop(cmd, stdout, &stderrBuf, mcpConfigPath)
 
 	return nil
 }
 
-func (qs *qoderSession) readLoop(cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer) {
+func (qs *qoderSession) buildQoderArgs(prompt, sessionID, mcpConfigPath string) []string {
+	args := append(append([]string{}, qs.extraArgs...), "-p", prompt, "-f", "stream-json", "-q", "-w", qs.workDir)
+	if sessionID != "" {
+		args = append(args, "-r", sessionID)
+	}
+	if qs.mode == "yolo" {
+		if os.Geteuid() == 0 {
+			slog.Warn("qoderSession: --dangerously-skip-permissions not allowed under root, skipping flag")
+		} else {
+			args = append(args, "--dangerously-skip-permissions")
+		}
+	}
+	if qs.model != "" {
+		args = append(args, "--model", qs.model)
+	}
+	if mcpConfigPath != "" {
+		args = append(args, "--mcp-config", mcpConfigPath)
+	}
+	return args
+}
+
+func writeQoderMCPConfigFile(dir string, cfg core.MCPConfig) (string, error) {
+	if !cfg.Enabled() {
+		return "", nil
+	}
+	if dir == "" {
+		dir = os.TempDir()
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create Qoder MCP config dir %s: %w", dir, err)
+	}
+	headers := map[string]string{
+		"Authorization": cfg.Authorization,
+	}
+	if cfg.NodeID != "" {
+		headers["DIREXTALK-Agent-Node-Id"] = cfg.NodeID
+	}
+	doc := map[string]any{
+		"mcpServers": map[string]any{
+			cfg.ServerName: map[string]any{
+				"type":    "http",
+				"url":     cfg.URL,
+				"headers": headers,
+			},
+		},
+	}
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		return "", fmt.Errorf("encode Qoder MCP config: %w", err)
+	}
+	tmp, err := os.CreateTemp(dir, "qoder-mcp-*.json")
+	if err != nil {
+		return "", fmt.Errorf("create Qoder MCP config: %w", err)
+	}
+	path := tmp.Name()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(path)
+		return "", fmt.Errorf("chmod Qoder MCP config %s: %w", path, err)
+	}
+	if _, err := tmp.Write(out.Bytes()); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(path)
+		return "", fmt.Errorf("write Qoder MCP config %s: %w", path, err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("close Qoder MCP config %s: %w", path, err)
+	}
+	return path, nil
+}
+
+func (qs *qoderSession) readLoop(cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer, mcpConfigPath string) {
 	defer qs.wg.Done()
+	defer func() {
+		if mcpConfigPath != "" {
+			_ = os.Remove(mcpConfigPath)
+		}
+	}()
 
 	var gotResult bool
 	var nonJSONLines []string
