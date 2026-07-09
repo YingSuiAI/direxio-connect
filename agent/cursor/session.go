@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,6 +29,7 @@ type cursorSession struct {
 	model     string
 	mode      string
 	extraEnv  []string
+	mcpConfig core.MCPConfig
 	events    chan core.Event
 	chatID    atomic.Value // stores string — Cursor chat/session ID
 	ctx       context.Context
@@ -52,7 +54,7 @@ type pendingInteractionQuery struct {
 	queryType string // e.g. "webFetchRequestQuery", "shellRequestQuery"
 }
 
-func newCursorSession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string) (*cursorSession, error) {
+func newCursorSession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string, mcpConfig core.MCPConfig) (*cursorSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	cs := &cursorSession{
@@ -62,6 +64,7 @@ func newCursorSession(ctx context.Context, cmd string, extraArgs []string, workD
 		model:     model,
 		mode:      mode,
 		extraEnv:  extraEnv,
+		mcpConfig: mcpConfig,
 		events:    make(chan core.Event, 64),
 		ctx:       sessionCtx,
 		cancel:    cancel,
@@ -110,6 +113,9 @@ func (cs *cursorSession) Send(prompt string, images []core.ImageAttachment, file
 	if cs.model != "" {
 		args = append(args, "--model", cs.model)
 	}
+	if err := ensureCursorMCPConfig(cs.mcpConfig); err != nil {
+		return fmt.Errorf("cursorSession: configure MCP: %w", err)
+	}
 	args = append(args, "--workspace", cs.workDir, "--", prompt)
 
 	slog.Debug("cursorSession: launching", "resume", isResume, "args", core.RedactArgs(args))
@@ -149,6 +155,81 @@ func (cs *cursorSession) Send(prompt string, images []core.ImageAttachment, file
 	cs.wg.Add(1)
 	go cs.readLoop(cmd, stdout, &stderrBuf)
 
+	return nil
+}
+
+func ensureCursorMCPConfig(cfg core.MCPConfig) error {
+	if !cfg.Enabled() {
+		return nil
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot determine home dir: %w", err)
+	}
+	return writeCursorMCPConfig(cursorMCPConfigPath(homeDir), cfg)
+}
+
+func cursorMCPConfigPath(homeDir string) string {
+	return filepath.Join(homeDir, ".cursor", "mcp.json")
+}
+
+func writeCursorMCPConfig(path string, cfg core.MCPConfig) error {
+	doc := map[string]any{}
+	if data, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(data)) > 0 {
+		if err := json.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("read Cursor MCP config %s: %w", path, err)
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read Cursor MCP config %s: %w", path, err)
+	}
+
+	servers, _ := doc["mcpServers"].(map[string]any)
+	if servers == nil {
+		servers = map[string]any{}
+	}
+	headers := map[string]string{
+		"Authorization": cfg.Authorization,
+	}
+	if cfg.NodeID != "" {
+		headers["DIREXTALK-Agent-Node-Id"] = cfg.NodeID
+	}
+	servers[cfg.ServerName] = map[string]any{
+		"url":     cfg.URL,
+		"headers": headers,
+	}
+	doc["mcpServers"] = servers
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create Cursor MCP config dir %s: %w", filepath.Dir(path), err)
+	}
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		return fmt.Errorf("encode Cursor MCP config %s: %w", path, err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".mcp-*.json")
+	if err != nil {
+		return fmt.Errorf("create temp Cursor MCP config %s: %w", path, err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod temp Cursor MCP config %s: %w", tmpPath, err)
+	}
+	if _, err := tmp.Write(out.Bytes()); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temp Cursor MCP config %s: %w", tmpPath, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp Cursor MCP config %s: %w", tmpPath, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replace Cursor MCP config %s: %w", path, err)
+	}
 	return nil
 }
 

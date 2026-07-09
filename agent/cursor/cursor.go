@@ -40,6 +40,7 @@ type Agent struct {
 	providers    []core.ProviderConfig
 	activeIdx    int
 	sessionEnv   []string
+	mcpConfig    core.MCPConfig
 	mu           sync.RWMutex
 }
 
@@ -64,6 +65,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		cliExtraArgs: extraArgs,
 		configEnv:    core.ParseConfigEnv(opts),
 		activeIdx:    -1,
+		mcpConfig:    core.ParseMCPConfig(opts),
 	}, nil
 }
 
@@ -196,6 +198,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	cmd := a.cmd
 	extraArgs := append([]string{}, a.cliExtraArgs...)
 	workDir := a.workDir
+	mcpConfig := a.mcpConfig
 	extraEnv := append([]string(nil), a.configEnv...)
 	extraEnv = append(extraEnv, a.providerEnvLocked()...)
 	extraEnv = append(extraEnv, a.sessionEnv...)
@@ -206,7 +209,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	}
 	a.mu.RUnlock()
 
-	return newCursorSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv)
+	return newCursorSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, mcpConfig)
 }
 
 // ListSessions reads sessions from Cursor Agent CLI chat storage.
