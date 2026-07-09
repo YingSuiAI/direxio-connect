@@ -2,6 +2,7 @@ package iflow
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -149,6 +150,103 @@ func TestStripANSI(t *testing.T) {
 	in := "\x1b]2;iFlow\x07\x1b[2K\rHello\x1b[?25l"
 	if got := stripANSI(in); got != "Hello" {
 		t.Fatalf("stripANSI = %q", got)
+	}
+}
+
+func TestEnsureIFlowMCPConfigWritesGlobalSettings(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	if err := ensureIFlowMCPConfig(cfg); err != nil {
+		t.Fatalf("ensureIFlowMCPConfig: %v", err)
+	}
+
+	settingsPath := iflowMCPSettingsPath(home)
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", settingsPath, err)
+	}
+
+	var parsed struct {
+		MCPServers map[string]struct {
+			Type    string            `json:"type"`
+			HTTPURL string            `json:"httpUrl"`
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	server := parsed.MCPServers["dirextalk_d1"]
+	if server.Type != "http" {
+		t.Fatalf("type = %q", server.Type)
+	}
+	if server.HTTPURL != "https://d1.dirextalk.ai/mcp" {
+		t.Fatalf("httpUrl = %q", server.HTTPURL)
+	}
+	if server.URL != "" {
+		t.Fatalf("should not write SSE url field: %#v", server)
+	}
+	if server.Headers["Authorization"] != "Bearer agent-token" {
+		t.Fatalf("Authorization header = %q", server.Headers["Authorization"])
+	}
+	if server.Headers["DIREXTALK-Agent-Node-Id"] != "node-1" {
+		t.Fatalf("node header = %q", server.Headers["DIREXTALK-Agent-Node-Id"])
+	}
+}
+
+func TestEnsureIFlowMCPConfigPreservesSettingsAndAllowsServer(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	settingsPath := iflowMCPSettingsPath(home)
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	existing := `{
+  "theme": "Default",
+  "allowMCPServers": ["existing"],
+  "excludeMCPServers": ["dirextalk-d1", "other"],
+  "mcpServers": {
+    "existing": {"command": "node"}
+  }
+}`
+	if err := os.WriteFile(settingsPath, []byte(existing), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := core.MCPConfigFromAgentToken("dirextalk-d1", "https://d1.dirextalk.ai/mcp", "agent-token", "")
+	if err := ensureIFlowMCPConfig(cfg); err != nil {
+		t.Fatalf("ensureIFlowMCPConfig: %v", err)
+	}
+
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if parsed["theme"] != "Default" {
+		t.Fatalf("existing top-level setting not preserved: %#v", parsed)
+	}
+	servers, ok := parsed["mcpServers"].(map[string]any)
+	if !ok {
+		t.Fatalf("mcpServers type = %T", parsed["mcpServers"])
+	}
+	if _, ok := servers["existing"]; !ok {
+		t.Fatalf("existing server not preserved: %#v", servers)
+	}
+	if _, ok := servers["dirextalk-d1"]; !ok {
+		t.Fatalf("dirextalk server missing: %#v", servers)
+	}
+	if !iflowJSONArrayContainsString(parsed["allowMCPServers"], "dirextalk-d1") {
+		t.Fatalf("allowMCPServers should include dirextalk-d1: %#v", parsed["allowMCPServers"])
+	}
+	if iflowJSONArrayContainsString(parsed["excludeMCPServers"], "dirextalk-d1") {
+		t.Fatalf("excludeMCPServers should remove dirextalk-d1: %#v", parsed["excludeMCPServers"])
 	}
 }
 
@@ -337,7 +435,7 @@ func TestIFlowTurnTimerResetsOnPartialToolCompletion(t *testing.T) {
 }
 
 func TestIFlowSessionCustomToolTimeout(t *testing.T) {
-	sess, err := newIFlowSession(context.Background(), "echo", nil, "/tmp", "", "yolo", "", nil, 300)
+	sess, err := newIFlowSession(context.Background(), "echo", nil, "/tmp", "", "yolo", "", nil, core.MCPConfig{}, 300)
 	if err != nil {
 		t.Fatalf("newIFlowSession: %v", err)
 	}
@@ -348,7 +446,7 @@ func TestIFlowSessionCustomToolTimeout(t *testing.T) {
 }
 
 func TestIFlowSessionDefaultToolTimeout(t *testing.T) {
-	sess, err := newIFlowSession(context.Background(), "echo", nil, "/tmp", "", "yolo", "", nil, 0)
+	sess, err := newIFlowSession(context.Background(), "echo", nil, "/tmp", "", "yolo", "", nil, core.MCPConfig{}, 0)
 	if err != nil {
 		t.Fatalf("newIFlowSession: %v", err)
 	}
@@ -394,7 +492,7 @@ while :; do sleep 1; done
 		t.Fatalf("WriteFile fake iflow: %v", err)
 	}
 
-	sess, err := newIFlowSession(context.Background(), cmdPath, nil, workDir, "", "default", "", nil, 0)
+	sess, err := newIFlowSession(context.Background(), cmdPath, nil, workDir, "", "default", "", nil, core.MCPConfig{}, 0)
 	if err != nil {
 		t.Fatalf("newIFlowSession: %v", err)
 	}
@@ -430,7 +528,7 @@ while :; do sleep 1; done
 }
 
 func TestIFlowSession_ContinueSessionTreatedAsFresh(t *testing.T) {
-	s, err := newIFlowSession(context.Background(), "echo", nil, "/tmp", "", "default", core.ContinueSession, nil, 0)
+	s, err := newIFlowSession(context.Background(), "echo", nil, "/tmp", "", "default", core.ContinueSession, nil, core.MCPConfig{}, 0)
 	if err != nil {
 		t.Fatalf("newIFlowSession: %v", err)
 	}
