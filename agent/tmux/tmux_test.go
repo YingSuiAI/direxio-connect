@@ -145,6 +145,28 @@ func TestResolveTargetStable(t *testing.T) {
 	}
 }
 
+func TestTmuxExportCommand(t *testing.T) {
+	cmd, ok := tmuxExportCommand("DIREXTALK_MCP_AGENT_TOKEN=sk-test token")
+	if !ok {
+		t.Fatal("tmuxExportCommand returned false")
+	}
+	if cmd != "export DIREXTALK_MCP_AGENT_TOKEN='sk-test token'" {
+		t.Fatalf("command = %q", cmd)
+	}
+
+	cmd, ok = tmuxExportCommand("QUOTED=it's ok")
+	if !ok {
+		t.Fatal("tmuxExportCommand returned false for quoted value")
+	}
+	if cmd != "export QUOTED='it'\\''s ok'" {
+		t.Fatalf("quoted command = %q", cmd)
+	}
+
+	if _, ok := tmuxExportCommand("=missing"); ok {
+		t.Fatal("empty key should be ignored")
+	}
+}
+
 // TestNewTmuxSessionWorkDir verifies that the workDir is stored in the session so
 // that file attachments are saved relative to the workspace, not to ".".
 func TestNewTmuxSessionWorkDir(t *testing.T) {

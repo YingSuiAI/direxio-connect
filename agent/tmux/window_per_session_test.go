@@ -71,9 +71,20 @@ func TestWindowForSession_EnabledResumeReusesWindow(t *testing.T) {
 // workspace sessions silently lose isolation. Construct Agent directly so the
 // test does not depend on the tmux binary.
 func TestWorkspaceAgentOptionsPreservesWindowPerSession(t *testing.T) {
-	a := &Agent{sessionName: "claude-work", windowPerSession: true}
+	a := &Agent{
+		sessionName:      "claude-work",
+		windowPerSession: true,
+		configEnv:        []string{"DIREXTALK_MCP_ENABLED=1", "DIREXTALK_MCP_AGENT_TOKEN=agent-token"},
+	}
 	opts := a.WorkspaceAgentOptions()
 	if opts["window_per_session"] != true {
 		t.Fatalf("WorkspaceAgentOptions dropped window_per_session: %v", opts["window_per_session"])
+	}
+	env, ok := opts["env"].(map[string]string)
+	if !ok {
+		t.Fatalf("WorkspaceAgentOptions env type = %T", opts["env"])
+	}
+	if env["DIREXTALK_MCP_ENABLED"] != "1" || env["DIREXTALK_MCP_AGENT_TOKEN"] != "agent-token" {
+		t.Fatalf("WorkspaceAgentOptions env = %#v", env)
 	}
 }

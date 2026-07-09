@@ -27,7 +27,8 @@ type Agent struct {
 	autoCreate      bool
 	shell           string
 	initCmd         string // command to run once after a new session is created (e.g. "claude")
-	startupWaitMs   int    // milliseconds to wait after init_command before accepting messages
+	configEnv       []string
+	startupWaitMs   int // milliseconds to wait after init_command before accepting messages
 	promptPat       string
 	pollMs          int
 	stripInputBlock bool     // strip the ───/❯/─── input area block from output
@@ -63,6 +64,7 @@ func New(opts map[string]any) (core.Agent, error) {
 
 	shell, _ := opts["shell"].(string)
 	initCmd, _ := opts["init_command"].(string)
+	configEnv := core.ParseConfigEnv(opts)
 
 	startupWaitMs := 0
 	switch v := opts["startup_wait_ms"].(type) {
@@ -132,6 +134,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		autoCreate:       autoCreate,
 		shell:            shell,
 		initCmd:          initCmd,
+		configEnv:        configEnv,
 		startupWaitMs:    startupWaitMs,
 		promptPat:        promptPat,
 		pollMs:           pollMs,
@@ -151,6 +154,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	autoCreate := a.autoCreate
 	shell := a.shell
 	initCmd := a.initCmd
+	configEnv := append([]string(nil), a.configEnv...)
 	startupWaitMs := a.startupWaitMs
 	promptPat := a.promptPat
 	pollMs := a.pollMs
@@ -196,6 +200,11 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 		if workDir != "" && workDir != "." {
 			if err := sendKeys(target, "cd "+shellQuote(workDir)); err != nil {
 				slog.Warn("tmux: cd failed", "work_dir", workDir, "err", err)
+			}
+		}
+		for _, pair := range configEnv {
+			if err := sendExport(target, pair); err != nil {
+				slog.Warn("tmux: export env failed", "env", redactEnvPair(pair), "err", err)
 			}
 		}
 		if initCmd != "" {
@@ -287,6 +296,31 @@ func sanitizeWindowName(name string) string {
 	return name
 }
 
+func tmuxExportCommand(pair string) (string, bool) {
+	key, value, ok := strings.Cut(pair, "=")
+	key = strings.TrimSpace(key)
+	if !ok || key == "" {
+		return "", false
+	}
+	return "export " + key + "=" + shellQuote(value), true
+}
+
+func sendExport(target, pair string) error {
+	cmd, ok := tmuxExportCommand(pair)
+	if !ok {
+		return nil
+	}
+	return sendKeys(target, cmd)
+}
+
+func redactEnvPair(pair string) string {
+	key, _, ok := strings.Cut(pair, "=")
+	if !ok {
+		return pair
+	}
+	return key + "=<redacted>"
+}
+
 func (a *Agent) ListSessions(_ context.Context) ([]core.AgentSessionInfo, error) {
 	return nil, nil
 }
@@ -300,7 +334,7 @@ func (a *Agent) Stop() error { return nil }
 func (a *Agent) WorkspaceAgentOptions() map[string]any {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return map[string]any{
+	opts := map[string]any{
 		"session":            a.sessionName,
 		"pane":               a.pane,
 		"auto_create":        a.autoCreate,
@@ -313,6 +347,17 @@ func (a *Agent) WorkspaceAgentOptions() map[string]any {
 		"strip_patterns":     a.stripPatterns,
 		"window_per_session": a.windowPerSession,
 	}
+	if len(a.configEnv) > 0 {
+		env := map[string]string{}
+		for _, pair := range a.configEnv {
+			k, v, ok := strings.Cut(pair, "=")
+			if ok {
+				env[k] = v
+			}
+		}
+		opts["env"] = env
+	}
+	return opts
 }
 
 func (a *Agent) SetWorkDir(dir string) {
