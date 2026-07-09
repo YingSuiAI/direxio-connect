@@ -334,6 +334,99 @@ func TestSettingsPath(t *testing.T) {
 	}
 }
 
+func TestEnsurePiMCPConfigWritesAgentDirConfig(t *testing.T) {
+	agentDir := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_DIR", agentDir)
+
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	if err := ensurePiMCPConfig(cfg); err != nil {
+		t.Fatalf("ensurePiMCPConfig: %v", err)
+	}
+
+	path := filepath.Join(agentDir, "mcp.json")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(%s): %v", path, err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mode = %o, want 600", got)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var parsed struct {
+		MCPServers map[string]struct {
+			Transport string            `json:"transport"`
+			URL       string            `json:"url"`
+			Lifecycle string            `json:"lifecycle"`
+			Headers   map[string]string `json:"headers"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	server := parsed.MCPServers["dirextalk_d1"]
+	if server.Transport != "streamable-http" {
+		t.Fatalf("transport = %q", server.Transport)
+	}
+	if server.URL != "https://d1.dirextalk.ai/mcp" {
+		t.Fatalf("url = %q", server.URL)
+	}
+	if server.Lifecycle != "eager" {
+		t.Fatalf("lifecycle = %q", server.Lifecycle)
+	}
+	if server.Headers["Authorization"] != "Bearer agent-token" {
+		t.Fatalf("Authorization header = %q", server.Headers["Authorization"])
+	}
+	if server.Headers["DIREXTALK-Agent-Node-Id"] != "node-1" {
+		t.Fatalf("node header = %q", server.Headers["DIREXTALK-Agent-Node-Id"])
+	}
+}
+
+func TestEnsurePiMCPConfigPreservesExistingConfig(t *testing.T) {
+	agentDir := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_DIR", agentDir)
+	path := filepath.Join(agentDir, "mcp.json")
+	existing := `{
+  "settings": {"toolPrefix": "mcp", "requestTimeoutMs": 45000},
+  "mcpServers": {
+    "existing": {"transport": "stdio", "command": "node"}
+  }
+}`
+	if err := os.WriteFile(path, []byte(existing), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := core.MCPConfigFromAgentToken("dirextalk-d1", "https://d1.dirextalk.ai/mcp", "agent-token", "")
+	if err := ensurePiMCPConfig(cfg); err != nil {
+		t.Fatalf("ensurePiMCPConfig: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if _, ok := parsed["settings"].(map[string]any); !ok {
+		t.Fatalf("settings not preserved: %#v", parsed)
+	}
+	servers, ok := parsed["mcpServers"].(map[string]any)
+	if !ok {
+		t.Fatalf("mcpServers type = %T", parsed["mcpServers"])
+	}
+	if _, ok := servers["existing"]; !ok {
+		t.Fatalf("existing server not preserved: %#v", servers)
+	}
+	if _, ok := servers["dirextalk-d1"]; !ok {
+		t.Fatalf("dirextalk server missing: %#v", servers)
+	}
+}
+
 func TestAgent_SetSessionEnv(t *testing.T) {
 	a := &Agent{}
 	a.SetSessionEnv([]string{"FOO=bar", "BAZ=qux"})
