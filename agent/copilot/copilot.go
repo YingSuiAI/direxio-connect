@@ -35,6 +35,7 @@ type Agent struct {
 	providers    []core.ProviderConfig
 	activeIdx    int // -1 = no provider set
 	sessionEnv   []string
+	mcpConfig    core.MCPConfig
 
 	mu sync.RWMutex
 }
@@ -61,6 +62,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		model:        model,
 		mode:         mode,
 		activeIdx:    -1,
+		mcpConfig:    core.ParseMCPConfig(opts),
 	}, nil
 }
 
@@ -154,6 +156,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	workDir := a.workDir
 	cmd := a.cmd
 	extraArgs := append([]string{}, a.cliExtraArgs...)
+	mcpConfig := a.mcpConfig
 	extraEnv := append([]string(nil), a.configEnv...)
 	extraEnv = append(extraEnv, a.providerEnvLocked()...)
 	extraEnv = append(extraEnv, a.sessionEnv...)
@@ -164,6 +167,10 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 		}
 	}
 	a.mu.RUnlock()
+
+	if err := ensureCopilotMCPConfig(mcpConfig); err != nil {
+		return nil, fmt.Errorf("copilot: configure MCP: %w", err)
+	}
 
 	return newCopilotSession(ctx, workDir, cmd, extraArgs, model, mode, sessionID, extraEnv, provider)
 }

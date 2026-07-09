@@ -150,6 +150,83 @@ func newCopilotSession(ctx context.Context, workDir, cliBin string, extraArgs []
 	return cs, nil
 }
 
+func ensureCopilotMCPConfig(cfg core.MCPConfig) error {
+	if !cfg.Enabled() {
+		return nil
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot determine home dir: %w", err)
+	}
+	return writeCopilotMCPConfig(copilotMCPConfigPath(homeDir), cfg)
+}
+
+func copilotMCPConfigPath(homeDir string) string {
+	return filepath.Join(homeDir, ".copilot", "mcp-config.json")
+}
+
+func writeCopilotMCPConfig(path string, cfg core.MCPConfig) error {
+	doc := map[string]any{}
+	if data, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(data)) > 0 {
+		if err := json.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("read Copilot MCP config %s: %w", path, err)
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read Copilot MCP config %s: %w", path, err)
+	}
+
+	servers, _ := doc["mcpServers"].(map[string]any)
+	if servers == nil {
+		servers = map[string]any{}
+	}
+	headers := map[string]string{
+		"Authorization": cfg.Authorization,
+	}
+	if cfg.NodeID != "" {
+		headers["DIREXTALK-Agent-Node-Id"] = cfg.NodeID
+	}
+	servers[cfg.ServerName] = map[string]any{
+		"type":    "http",
+		"url":     cfg.URL,
+		"headers": headers,
+		"tools":   []string{"*"},
+	}
+	doc["mcpServers"] = servers
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create Copilot MCP config dir %s: %w", filepath.Dir(path), err)
+	}
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		return fmt.Errorf("encode Copilot MCP config %s: %w", path, err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".mcp-config-*.json")
+	if err != nil {
+		return fmt.Errorf("create temp Copilot MCP config %s: %w", path, err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod temp Copilot MCP config %s: %w", tmpPath, err)
+	}
+	if _, err := tmp.Write(out.Bytes()); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temp Copilot MCP config %s: %w", tmpPath, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp Copilot MCP config %s: %w", tmpPath, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replace Copilot MCP config %s: %w", path, err)
+	}
+	return nil
+}
+
 func (cs *copilotSession) handshake(resumeSessionID string) error {
 	// Step 1: Ping
 	_, pingCh := cs.rpc.call("ping", nil)

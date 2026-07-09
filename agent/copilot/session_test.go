@@ -11,6 +11,91 @@ import (
 	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
+func TestEnsureCopilotMCPConfigWritesGlobalConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	if err := ensureCopilotMCPConfig(cfg); err != nil {
+		t.Fatalf("ensureCopilotMCPConfig: %v", err)
+	}
+
+	configPath := copilotMCPConfigPath(home)
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", configPath, err)
+	}
+
+	var parsed struct {
+		MCPServers map[string]struct {
+			Type    string            `json:"type"`
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+			Tools   []string          `json:"tools"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	server := parsed.MCPServers["dirextalk_d1"]
+	if server.Type != "http" {
+		t.Fatalf("type = %q", server.Type)
+	}
+	if server.URL != "https://d1.dirextalk.ai/mcp" {
+		t.Fatalf("url = %q", server.URL)
+	}
+	if server.Headers["Authorization"] != "Bearer agent-token" {
+		t.Fatalf("Authorization header = %q", server.Headers["Authorization"])
+	}
+	if server.Headers["DIREXTALK-Agent-Node-Id"] != "node-1" {
+		t.Fatalf("node header = %q", server.Headers["DIREXTALK-Agent-Node-Id"])
+	}
+	if len(server.Tools) != 1 || server.Tools[0] != "*" {
+		t.Fatalf("tools = %#v, want [*]", server.Tools)
+	}
+}
+
+func TestEnsureCopilotMCPConfigPreservesExistingServers(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := copilotMCPConfigPath(home)
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	existing := `{"mcpServers":{"existing":{"type":"local","command":"node","args":["server.js"],"tools":["*"]}},"notes":{"keep":true}}`
+	if err := os.WriteFile(configPath, []byte(existing), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := core.MCPConfigFromAgentToken("dirextalk-d1", "https://d1.dirextalk.ai/mcp", "agent-token", "")
+	if err := ensureCopilotMCPConfig(cfg); err != nil {
+		t.Fatalf("ensureCopilotMCPConfig: %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if _, ok := parsed["notes"].(map[string]any); !ok {
+		t.Fatalf("existing top-level config not preserved: %#v", parsed)
+	}
+	servers, ok := parsed["mcpServers"].(map[string]any)
+	if !ok {
+		t.Fatalf("mcpServers type = %T", parsed["mcpServers"])
+	}
+	if _, ok := servers["existing"]; !ok {
+		t.Fatalf("existing server not preserved: %#v", servers)
+	}
+	if _, ok := servers["dirextalk-d1"]; !ok {
+		t.Fatalf("dirextalk server missing: %#v", servers)
+	}
+}
+
 func TestHandleSessionEvent_AssistantMessage(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
