@@ -69,15 +69,22 @@ func TestMCPConfig_ACPServers(t *testing.T) {
 	if server["name"] != "dirextalk-d1" || server["url"] != "https://d1.dirextalk.ai/mcp" {
 		t.Fatalf("server = %#v", server)
 	}
-	headers, ok := server["headers"].(map[string]string)
+	if server["type"] != "http" {
+		t.Fatalf("type = %#v, want http", server["type"])
+	}
+	headers, ok := server["headers"].([]map[string]string)
 	if !ok {
 		t.Fatalf("headers type = %T", server["headers"])
 	}
-	if headers["Authorization"] != "Bearer agent-token" {
-		t.Fatalf("Authorization header = %q", headers["Authorization"])
+	gotHeaders := map[string]string{}
+	for _, header := range headers {
+		gotHeaders[header["name"]] = header["value"]
 	}
-	if headers["DIREXTALK-Agent-Node-Id"] != "node-1" {
-		t.Fatalf("node header = %q", headers["DIREXTALK-Agent-Node-Id"])
+	if gotHeaders["Authorization"] != "Bearer agent-token" {
+		t.Fatalf("Authorization header = %q", gotHeaders["Authorization"])
+	}
+	if gotHeaders["DIREXTALK-Agent-Node-Id"] != "node-1" {
+		t.Fatalf("node header = %q", gotHeaders["DIREXTALK-Agent-Node-Id"])
 	}
 }
 

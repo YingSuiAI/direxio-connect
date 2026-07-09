@@ -59,8 +59,34 @@ func TestNew_ParsesMCPConfig(t *testing.T) {
 	if server["name"] != "dirextalk-d1" || server["url"] != "https://d1.dirextalk.ai/mcp" {
 		t.Fatalf("server = %#v", server)
 	}
+	if server["type"] != "http" {
+		t.Fatalf("server type = %#v, want http", server["type"])
+	}
+	if _, ok := server["command"]; ok {
+		t.Fatalf("http MCP server must not include stdio command: %#v", server)
+	}
+	if _, ok := server["args"]; ok {
+		t.Fatalf("http MCP server must not include stdio args: %#v", server)
+	}
+	if _, ok := server["env"]; ok {
+		t.Fatalf("http MCP server must not include stdio env: %#v", server)
+	}
+	headers, ok := server["headers"].([]map[string]string)
+	if !ok {
+		t.Fatalf("headers type = %T", server["headers"])
+	}
+	gotHeaders := map[string]string{}
+	for _, header := range headers {
+		gotHeaders[header["name"]] = header["value"]
+	}
+	if gotHeaders["Authorization"] != "Bearer agent-token" {
+		t.Fatalf("Authorization header = %q", gotHeaders["Authorization"])
+	}
+	if gotHeaders["DIREXTALK-Agent-Node-Id"] != "node-1" {
+		t.Fatalf("node header = %q", gotHeaders["DIREXTALK-Agent-Node-Id"])
+	}
 	snakeServer := snakeServers[0].(map[string]any)
-	if snakeServer["name"] != server["name"] || snakeServer["url"] != server["url"] {
+	if snakeServer["name"] != server["name"] || snakeServer["url"] != server["url"] || snakeServer["type"] != server["type"] {
 		t.Fatalf("mcp_servers[0] = %#v, want same as mcpServers[0] %#v", snakeServer, server)
 	}
 }

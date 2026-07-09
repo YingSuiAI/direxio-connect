@@ -69,12 +69,15 @@ func (c MCPConfig) ACPServers() []any {
 	if !c.Enabled() {
 		return []any{}
 	}
-	headers := map[string]string{"Authorization": c.Authorization}
+	headers := []map[string]string{
+		{"name": "Authorization", "value": c.Authorization},
+	}
 	if c.NodeID != "" {
-		headers["DIREXTALK-Agent-Node-Id"] = c.NodeID
+		headers = append(headers, map[string]string{"name": "DIREXTALK-Agent-Node-Id", "value": c.NodeID})
 	}
 	return []any{map[string]any{
 		"name":    c.ServerName,
+		"type":    "http",
 		"url":     c.URL,
 		"headers": headers,
 	}}
