@@ -14,7 +14,7 @@ if [ "$make_version" != "$tag" ]; then
   exit 1
 fi
 
-if ! git diff --quiet || ! git diff --cached --quiet; then
+if ! git diff --ignore-cr-at-eol --quiet || ! git diff --cached --quiet; then
   echo "working tree is dirty; commit or stash changes before release" >&2
   exit 1
 fi
