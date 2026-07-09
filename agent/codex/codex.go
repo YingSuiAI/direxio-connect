@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +43,7 @@ type Agent struct {
 	backend         string // "exec" | "app_server"
 	appServerURL    string
 	codexHome       string
+	mcpConfig       codexMCPConfig
 	systemPrompt    string
 	appendPrompt    string
 	cmd             string   // CLI binary name, default "codex"
@@ -64,6 +66,7 @@ func New(opts map[string]any) (core.Agent, error) {
 	backend, _ := opts["backend"].(string)
 	appServerURL, _ := opts["app_server_url"].(string)
 	codexHome, _ := opts["codex_home"].(string)
+	mcpConfig := parseCodexMCPConfig(opts)
 	systemPrompt, _ := opts["system_prompt"].(string)
 	appendPrompt, _ := opts["append_system_prompt"].(string)
 	mode = normalizeMode(mode)
@@ -104,6 +107,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		backend:         backend,
 		appServerURL:    appServerURL,
 		codexHome:       strings.TrimSpace(codexHome),
+		mcpConfig:       mcpConfig,
 		systemPrompt:    strings.TrimSpace(systemPrompt),
 		appendPrompt:    strings.TrimSpace(appendPrompt),
 		cmd:             cmd,
@@ -111,6 +115,130 @@ func New(opts map[string]any) (core.Agent, error) {
 		configEnv:       configEnv,
 		activeIdx:       -1,
 	}, nil
+}
+
+type codexMCPConfig struct {
+	ServerName    string
+	URL           string
+	Authorization string
+	NodeID        string
+}
+
+func (c codexMCPConfig) enabled() bool {
+	return c.ServerName != "" && c.URL != "" && c.Authorization != ""
+}
+
+func parseCodexMCPConfig(opts map[string]any) codexMCPConfig {
+	if optionBool(opts, "mcp_enabled", true) == false {
+		return codexMCPConfig{}
+	}
+	serverName := stringOption(opts, "mcp_server_name")
+	url := stringOption(opts, "mcp_url")
+	if url == "" {
+		url = mcpURLFromDomain(stringOption(opts, "mcp_domain"))
+	}
+	auth := strings.TrimSpace(stringOption(opts, "mcp_authorization"))
+	if auth == "" {
+		token := strings.TrimSpace(stringOption(opts, "mcp_agent_token"))
+		if token != "" {
+			if strings.HasPrefix(strings.ToLower(token), "bearer ") {
+				auth = token
+			} else {
+				auth = "Bearer " + token
+			}
+		}
+	}
+	return codexMCPConfig{
+		ServerName:    sanitizeCodexMCPServerName(serverName),
+		URL:           strings.TrimSpace(url),
+		Authorization: auth,
+		NodeID:        strings.TrimSpace(stringOption(opts, "mcp_node_id")),
+	}
+}
+
+func stringOption(opts map[string]any, key string) string {
+	if opts == nil {
+		return ""
+	}
+	if v, ok := opts[key].(string); ok {
+		return strings.TrimSpace(v)
+	}
+	if nested, ok := opts["mcp"].(map[string]any); ok {
+		if v, ok := nested[strings.TrimPrefix(key, "mcp_")].(string); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	if nested, ok := opts["mcp"].(map[string]string); ok {
+		if v, ok := nested[strings.TrimPrefix(key, "mcp_")]; ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+func optionBool(opts map[string]any, key string, fallback bool) bool {
+	raw, ok := opts[key]
+	if !ok {
+		return fallback
+	}
+	switch v := raw.(type) {
+	case bool:
+		return v
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "0", "false", "off", "no", "disabled", "skip":
+			return false
+		case "1", "true", "on", "yes", "enabled", "auto", "":
+			return true
+		}
+	}
+	return fallback
+}
+
+func mcpURLFromDomain(domain string) string {
+	domain = strings.TrimRight(strings.TrimSpace(domain), "/")
+	if domain == "" {
+		return ""
+	}
+	if !strings.HasPrefix(domain, "http://") && !strings.HasPrefix(domain, "https://") {
+		domain = "https://" + domain
+	}
+	return domain + "/mcp"
+}
+
+func sanitizeCodexMCPServerName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	name = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r
+		case r >= '0' && r <= '9':
+			return r
+		case r == '_' || r == '-':
+			return r
+		case r == '.':
+			return '_'
+		default:
+			return '-'
+		}
+	}, name)
+	name = strings.Trim(name, "-_")
+	return name
+}
+
+func appendCodexMCPConfigArgs(args []string, cfg codexMCPConfig) []string {
+	if !cfg.enabled() {
+		return args
+	}
+	serverKey := "mcp_servers." + strconv.Quote(cfg.ServerName)
+	args = append(args,
+		"-c", serverKey+".url="+strconv.Quote(cfg.URL),
+		"-c", serverKey+".headers.Authorization="+strconv.Quote(cfg.Authorization),
+	)
+	if cfg.NodeID != "" {
+		args = append(args, "-c", serverKey+".headers."+strconv.Quote("DIREXTALK-Agent-Node-Id")+"="+strconv.Quote(cfg.NodeID))
+	}
+	return args
 }
 
 func normalizeBackend(raw string) string {
@@ -500,6 +628,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	backend := a.backend
 	appServerURL := a.appServerURL
 	codexHome := a.codexHome
+	mcpConfig := a.mcpConfig
 	systemPrompt := a.systemPrompt
 	appendPrompt := a.appendPrompt
 	cliBin := a.cmd
@@ -532,13 +661,13 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	}
 
 	if backend == "app_server" {
-		return newAppServerSession(ctx, appServerURL, workDir, model, reasoningEffort, mode, sessionID, baseURL, provName, cliBin, cliExtraArgs, extraEnv, codexHome, systemPrompt, appendPrompt)
+		return newAppServerSession(ctx, appServerURL, workDir, model, reasoningEffort, mode, sessionID, baseURL, provName, cliBin, cliExtraArgs, extraEnv, codexHome, mcpConfig, systemPrompt, appendPrompt)
 	}
 	if codexHome != "" {
 		extraEnv = append(extraEnv, "CODEX_HOME="+codexHome)
 	}
 
-	return newCodexSession(ctx, cliBin, cliExtraArgs, workDir, model, reasoningEffort, mode, sessionID, baseURL, extraEnv, provName, systemPrompt, appendPrompt)
+	return newCodexSessionWithMCP(ctx, cliBin, cliExtraArgs, workDir, model, reasoningEffort, mode, sessionID, baseURL, extraEnv, provName, mcpConfig, systemPrompt, appendPrompt)
 }
 
 func (a *Agent) ListSessions(_ context.Context) ([]core.AgentSessionInfo, error) {

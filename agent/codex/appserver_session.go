@@ -152,6 +152,7 @@ type appServerSession struct {
 	cliExtraArgs   []string
 	extraEnv       []string
 	codexHome      string
+	mcpConfig      codexMCPConfig
 	promptPreamble string
 
 	events chan core.Event
@@ -193,7 +194,7 @@ const (
 	appServerUsageRefreshTimeout = 1500 * time.Millisecond
 )
 
-func newAppServerSession(ctx context.Context, url, workDir, model, effort, mode, resumeID, baseURL, modelProvider string, cliBin string, cliExtraArgs []string, extraEnv []string, codexHome string, systemPrompt string, appendPrompt string) (*appServerSession, error) {
+func newAppServerSession(ctx context.Context, url, workDir, model, effort, mode, resumeID, baseURL, modelProvider string, cliBin string, cliExtraArgs []string, extraEnv []string, codexHome string, mcpConfig codexMCPConfig, systemPrompt string, appendPrompt string) (*appServerSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 	s := &appServerSession{
 		url:              url,
@@ -207,6 +208,7 @@ func newAppServerSession(ctx context.Context, url, workDir, model, effort, mode,
 		cliExtraArgs:     append([]string(nil), cliExtraArgs...),
 		extraEnv:         append([]string(nil), extraEnv...),
 		codexHome:        strings.TrimSpace(codexHome),
+		mcpConfig:        mcpConfig,
 		promptPreamble:   buildCodexPromptPreamble(systemPrompt, appendPrompt),
 		events:           make(chan core.Event, 128),
 		ctx:              sessionCtx,
@@ -256,6 +258,7 @@ func (s *appServerSession) connect() error {
 	if baseURL := strings.TrimSpace(s.baseURL); baseURL != "" {
 		args = append(args, "-c", fmt.Sprintf("openai_base_url=%q", baseURL))
 	}
+	args = appendCodexMCPConfigArgs(args, s.mcpConfig)
 	bin := s.cliBin
 	if bin == "" {
 		bin = "codex"

@@ -100,6 +100,30 @@ func TestBuildExecArgs_IncludesModelProvider(t *testing.T) {
 	}
 }
 
+func TestBuildExecArgs_IncludesMCPConfig(t *testing.T) {
+	cs, err := newCodexSessionWithMCP(context.Background(), "codex", nil, "/tmp/project", "", "", "full-auto", "", "", nil, "", codexMCPConfig{
+		ServerName:    "dirextalk-d1_dirextalk_ai",
+		URL:           "https://d1.dirextalk.ai/mcp",
+		Authorization: "Bearer fake-agent-token",
+		NodeID:        "codex-d1",
+	}, "", "")
+	if err != nil {
+		t.Fatalf("newCodexSessionWithMCP: %v", err)
+	}
+
+	args := cs.buildExecArgs("hello", nil)
+
+	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".url="https://d1.dirextalk.ai/mcp"`}) {
+		t.Fatalf("args missing MCP url config flag: %v", args)
+	}
+	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".headers.Authorization="Bearer fake-agent-token"`}) {
+		t.Fatalf("args missing MCP Authorization config flag: %v", args)
+	}
+	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".headers."DIREXTALK-Agent-Node-Id"="codex-d1"`}) {
+		t.Fatalf("args missing MCP node id config flag: %v", args)
+	}
+}
+
 func TestBuildExecArgs_ResumeOmitsCdFlag(t *testing.T) {
 	cs, err := newCodexSession(context.Background(), "codex", nil, "/tmp/project", "", "", "full-auto", "thread-abc", "", nil, "", "", "")
 	if err != nil {

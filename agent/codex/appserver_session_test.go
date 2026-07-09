@@ -157,8 +157,12 @@ func TestAppServerSession_UsesConfiguredCommandAndExtraArgs(t *testing.T) {
 			"--",
 			"configured-extra",
 		}, " "),
-		"work_dir": workDir,
-		"mode":     "yolo",
+		"work_dir":        workDir,
+		"mode":            "yolo",
+		"mcp_server_name": "dirextalk-d1_dirextalk_ai",
+		"mcp_url":         "https://d1.dirextalk.ai/mcp",
+		"mcp_agent_token": "fake-agent-token",
+		"mcp_node_id":     "codex-d1",
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -183,6 +187,15 @@ func TestAppServerSession_UsesConfiguredCommandAndExtraArgs(t *testing.T) {
 	}
 	if args[1] != "--" || args[2] != "configured-extra" || args[3] != "app-server" {
 		t.Fatalf("helper args = %#v, want -- configured-extra app-server prefix", args)
+	}
+	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".url="https://d1.dirextalk.ai/mcp"`}) {
+		t.Fatalf("helper args missing MCP url config flag: %#v", args)
+	}
+	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".headers.Authorization="Bearer fake-agent-token"`}) {
+		t.Fatalf("helper args missing MCP Authorization config flag: %#v", args)
+	}
+	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".headers."DIREXTALK-Agent-Node-Id"="codex-d1"`}) {
+		t.Fatalf("helper args missing MCP node id config flag: %#v", args)
 	}
 }
 
