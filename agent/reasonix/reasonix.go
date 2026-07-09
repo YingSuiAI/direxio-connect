@@ -6,10 +6,13 @@
 package reasonix
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -23,10 +26,11 @@ func init() {
 
 // Agent drives a remote reasonix serve instance.
 type Agent struct {
-	mu       sync.RWMutex
-	serveURL string // e.g. "http://localhost:8080"
-	workDir  string // local project directory (for /dir and display)
-	mode     string // permission mode: "default", "yolo", "plan"
+	mu        sync.RWMutex
+	serveURL  string // e.g. "http://localhost:8080"
+	workDir   string // local project directory (for /dir and display)
+	mode      string // permission mode: "default", "yolo", "plan"
+	mcpConfig core.MCPConfig
 }
 
 // New creates a Reasonix agent.
@@ -51,9 +55,10 @@ func New(opts map[string]any) (core.Agent, error) {
 
 	slog.Info("reasonix: agent created", "serve_url", serveURL, "work_dir", workDir, "mode", mode)
 	return &Agent{
-		serveURL: serveURL,
-		workDir:  workDir,
-		mode:     mode,
+		serveURL:  serveURL,
+		workDir:   workDir,
+		mode:      mode,
+		mcpConfig: core.ParseMCPConfig(opts),
 	}, nil
 }
 
@@ -78,8 +83,18 @@ func (a *Agent) Name() string { return "reasonix" }
 // It establishes an SSE connection to /events and waits for it to be ready.
 func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentSession, error) {
 	slog.Info("reasonix: starting session", "session_id", sessionID)
+	a.mu.RLock()
+	serveURL := a.serveURL
+	workDir := a.workDir
+	mode := a.mode
+	mcpConfig := a.mcpConfig
+	a.mu.RUnlock()
 
-	s, err := newSession(ctx, a.serveURL, a.workDir, sessionID, a.mode)
+	if err := ensureReasonixMCPConfig(workDir, mcpConfig); err != nil {
+		return nil, fmt.Errorf("reasonix: configure MCP: %w", err)
+	}
+
+	s, err := newSession(ctx, serveURL, workDir, sessionID, mode)
 	if err != nil {
 		return nil, fmt.Errorf("reasonix: start session: %w", err)
 	}
@@ -152,6 +167,89 @@ func (a *Agent) ProjectMemoryFile() string {
 }
 
 func (a *Agent) GlobalMemoryFile() string { return "" }
+
+func ensureReasonixMCPConfig(workDir string, cfg core.MCPConfig) error {
+	if !cfg.Enabled() {
+		return nil
+	}
+	path, err := reasonixProjectMCPConfigPath(workDir)
+	if err != nil {
+		return err
+	}
+	return writeReasonixMCPConfig(path, cfg)
+}
+
+func reasonixProjectMCPConfigPath(workDir string) (string, error) {
+	if workDir == "" {
+		workDir = "."
+	}
+	absDir, err := filepath.Abs(workDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve work_dir: %w", err)
+	}
+	return filepath.Join(absDir, ".mcp.json"), nil
+}
+
+func writeReasonixMCPConfig(path string, cfg core.MCPConfig) error {
+	doc := map[string]any{}
+	if data, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(data)) > 0 {
+		if err := json.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("read Reasonix MCP config %s: %w", path, err)
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read Reasonix MCP config %s: %w", path, err)
+	}
+
+	servers, _ := doc["mcpServers"].(map[string]any)
+	if servers == nil {
+		servers = map[string]any{}
+	}
+	headers := map[string]string{
+		"Authorization": cfg.Authorization,
+	}
+	if cfg.NodeID != "" {
+		headers["DIREXTALK-Agent-Node-Id"] = cfg.NodeID
+	}
+	servers[cfg.ServerName] = map[string]any{
+		"type":    "http",
+		"url":     cfg.URL,
+		"headers": headers,
+	}
+	doc["mcpServers"] = servers
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create Reasonix MCP config dir %s: %w", filepath.Dir(path), err)
+	}
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		return fmt.Errorf("encode Reasonix MCP config %s: %w", path, err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".mcp-*.json")
+	if err != nil {
+		return fmt.Errorf("create temp Reasonix MCP config %s: %w", path, err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod temp Reasonix MCP config %s: %w", tmpPath, err)
+	}
+	if _, err := tmp.Write(out.Bytes()); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temp Reasonix MCP config %s: %w", tmpPath, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp Reasonix MCP config %s: %w", tmpPath, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replace Reasonix MCP config %s: %w", path, err)
+	}
+	return nil
+}
 
 // Static interface assertions — ensure Agent remains compliant with core.Agent.
 var _ core.Agent = (*Agent)(nil)              // *Agent satisfies core.Agent
