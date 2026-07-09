@@ -88,6 +88,32 @@ func TestMCPConfig_ACPServers(t *testing.T) {
 	}
 }
 
+func TestMCPConfig_MCPServersConfig(t *testing.T) {
+	cfg := MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	got := cfg.MCPServersConfig()
+	servers, ok := got["mcpServers"].(map[string]any)
+	if !ok {
+		t.Fatalf("mcpServers type = %T", got["mcpServers"])
+	}
+	server, ok := servers["dirextalk_d1"].(map[string]any)
+	if !ok {
+		t.Fatalf("server missing: %#v", servers)
+	}
+	if server["type"] != "http" || server["url"] != "https://d1.dirextalk.ai/mcp" {
+		t.Fatalf("server = %#v", server)
+	}
+	headers, ok := server["headers"].(map[string]string)
+	if !ok {
+		t.Fatalf("headers type = %T", server["headers"])
+	}
+	if headers["Authorization"] != "Bearer agent-token" {
+		t.Fatalf("Authorization = %q", headers["Authorization"])
+	}
+	if headers["DIREXTALK-Agent-Node-Id"] != "node-1" {
+		t.Fatalf("node header = %q", headers["DIREXTALK-Agent-Node-Id"])
+	}
+}
+
 func TestCreateAgent_AddsMCPEnvForAllFactories(t *testing.T) {
 	agentName := "mcp-test-agent"
 	var captured map[string]any

@@ -72,6 +72,11 @@ type claudeSession struct {
 	// when the session reuses the shared file (the common 99% case)
 	// or when there is nothing to append.
 	promptFilePath string
+
+	// mcpConfigFilePath is the per-spawn JSON file passed through
+	// --mcp-config. It contains bearer credentials, so it is written 0600
+	// and removed when the session closes.
+	mcpConfigFilePath string
 }
 
 // StartupWarning implements core.StartupWarner. Returns a non-empty string
@@ -153,6 +158,42 @@ func writeTempAppendPromptFile(ccDataDir, content string) (string, error) {
 	return f.Name(), nil
 }
 
+func writeClaudeMCPConfigFile(ccDataDir string, cfg core.MCPConfig) (string, error) {
+	if !cfg.Enabled() {
+		return "", nil
+	}
+	base := ccDataDir
+	if base == "" {
+		base = os.TempDir()
+	}
+	dir := filepath.Join(base, "agent-mcp")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, "claude-mcp-*.json")
+	if err != nil {
+		return "", err
+	}
+	path := f.Name()
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(cfg.MCPServersConfig()); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return "", err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	return path, nil
+}
+
 // writeFileAtomic writes data to path via a temp file + rename, so a
 // crash mid-write does not leave a half-written prompt file that the
 // next spawn would mistake for valid content.
@@ -204,7 +245,7 @@ func buildAppendSystemPrompt(agentPrompt, platformPrompt, userAppend string) str
 	return strings.Join(parts, "\n")
 }
 
-func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs []string, cmdArgsFlag string, model, effort, sessionID, mode, systemPrompt, appendSystemPrompt string, allowedTools, disallowedTools []string, pluginDirs []string, extraEnv []string, platformPrompt string, disableVerbose bool, spawnOpts core.SpawnOptions, maxContextTokens int, ccDataDir string) (*claudeSession, error) {
+func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs []string, cmdArgsFlag string, model, effort, sessionID, mode, systemPrompt, appendSystemPrompt string, allowedTools, disallowedTools []string, pluginDirs []string, extraEnv []string, platformPrompt string, disableVerbose bool, spawnOpts core.SpawnOptions, maxContextTokens int, ccDataDir string, mcpConfig core.MCPConfig) (*claudeSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	// Claude Code rejects bypassPermissions when running as root.
@@ -301,6 +342,17 @@ func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs 
 	}
 	if maxContextTokens > 0 {
 		innerArgs = append(innerArgs, "--max-context-tokens", strconv.Itoa(maxContextTokens))
+	}
+	mcpConfigFilePath, err := writeClaudeMCPConfigFile(ccDataDir, mcpConfig)
+	if err != nil {
+		if promptFilePath != "" && !promptFileIsShared {
+			_ = os.Remove(promptFilePath)
+		}
+		cancel()
+		return nil, fmt.Errorf("claudeSession: write MCP config file: %w", err)
+	}
+	if mcpConfigFilePath != "" {
+		innerArgs = append(innerArgs, "--mcp-config", mcpConfigFilePath)
 	}
 
 	// outerArgs are understood by both the wrapper and Claude CLI directly.
@@ -417,6 +469,9 @@ func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs 
 		if promptFilePath != "" && !promptFileIsShared {
 			_ = os.Remove(promptFilePath)
 		}
+		if mcpConfigFilePath != "" {
+			_ = os.Remove(mcpConfigFilePath)
+		}
 		cancel()
 		return nil, fmt.Errorf("claudeSession: start: %w", err)
 	}
@@ -442,6 +497,7 @@ func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs 
 		ccHooks:             newCCPermissionHookRunner(workDir),
 		startupWarning:      rootDowngradeWarning,
 		promptFilePath:      cleanupPromptPath,
+		mcpConfigFilePath:   mcpConfigFilePath,
 	}
 	cs.setPermissionMode(mode)
 	cs.sessionID.Store(sessionID)
@@ -1163,6 +1219,9 @@ func (cs *claudeSession) Close() error {
 	defer func() {
 		if cs.promptFilePath != "" {
 			_ = os.Remove(cs.promptFilePath)
+		}
+		if cs.mcpConfigFilePath != "" {
+			_ = os.Remove(cs.mcpConfigFilePath)
 		}
 	}()
 

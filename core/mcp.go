@@ -83,6 +83,27 @@ func (c MCPConfig) ACPServers() []any {
 	}}
 }
 
+func (c MCPConfig) MCPServersConfig() map[string]any {
+	if !c.Enabled() {
+		return map[string]any{"mcpServers": map[string]any{}}
+	}
+	headers := map[string]string{
+		"Authorization": c.Authorization,
+	}
+	if c.NodeID != "" {
+		headers["DIREXTALK-Agent-Node-Id"] = c.NodeID
+	}
+	return map[string]any{
+		"mcpServers": map[string]any{
+			c.ServerName: map[string]any{
+				"type":    "http",
+				"url":     c.URL,
+				"headers": headers,
+			},
+		},
+	}
+}
+
 func WithMCPEnvOptions(opts map[string]any) map[string]any {
 	cfg := ParseMCPConfig(opts)
 	if !cfg.Enabled() {

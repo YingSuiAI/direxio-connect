@@ -58,6 +58,7 @@ type Agent struct {
 	providerProxy  *core.ProviderProxy // local proxy for third-party providers
 	proxyLocalURL  string              // local URL of the proxy
 	platformPrompt string              // platform-specific formatting instructions
+	mcpConfig      core.MCPConfig      // session-scoped MCP server config for Claude Code
 
 	// ccDataDir is injected by the cc-connect host (see buildAgentOptions
 	// in cmd/cc-connect/main.go). It locates the global directory where
@@ -244,6 +245,7 @@ func New(opts map[string]any) (core.Agent, error) {
 	if _, err := ensureSharedSystemPromptFile(ccDataDir, core.AgentSystemPrompt()); err != nil {
 		slog.Warn("claudecode: failed to write shared system prompt file at startup; will retry on first spawn", "err", err, "cc_data_dir", ccDataDir)
 	}
+	mcpConfig := core.ParseMCPConfig(opts)
 
 	return &Agent{
 		workDir:          workDir,
@@ -264,6 +266,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		routerAPIKey:     routerAPIKey,
 		spawnOpts:        spawnOpts,
 		ccDataDir:        ccDataDir,
+		mcpConfig:        mcpConfig,
 
 		appendSystemPrompt: appendSystemPrompt,
 	}, nil
@@ -521,12 +524,13 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	platformPrompt := a.platformPrompt
 	systemPrompt := a.systemPrompt
 	appendSystemPrompt := a.appendSystemPrompt
+	mcpConfig := a.mcpConfig
 	// When router_url is set, --verbose conflicts with --output-format stream-json
 	// (verbose emits non-JSON text to stdout that corrupts the JSON stream).
 	disableVerbose := a.routerURL != ""
 	a.mu.Unlock()
 
-	return newClaudeSession(ctx, workDir, a.cmd, a.cliExtraArgs, a.cmdArgsFlag, model, effort, sessionID, mode, systemPrompt, appendSystemPrompt, tools, disTools, pluginDirs, extraEnv, platformPrompt, disableVerbose, a.spawnOpts, maxTok, a.ccDataDir)
+	return newClaudeSession(ctx, workDir, a.cmd, a.cliExtraArgs, a.cmdArgsFlag, model, effort, sessionID, mode, systemPrompt, appendSystemPrompt, tools, disTools, pluginDirs, extraEnv, platformPrompt, disableVerbose, a.spawnOpts, maxTok, a.ccDataDir, mcpConfig)
 }
 
 func (a *Agent) ListSessions(ctx context.Context) ([]core.AgentSessionInfo, error) {

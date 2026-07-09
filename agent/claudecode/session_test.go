@@ -3,6 +3,7 @@ package claudecode
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -401,6 +402,108 @@ func TestClaudeSessionClose_IdempotentNoPanic(t *testing.T) {
 	}
 }
 
+func TestNewClaudeSessionInjectsMCPConfigFile(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	workDir := t.TempDir()
+	dataDir := t.TempDir()
+	argvFile := filepath.Join(t.TempDir(), "argv.txt")
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+
+	cs, err := newClaudeSession(
+		ctx,
+		workDir,
+		os.Args[0],
+		[]string{"-test.run=TestHelperProcess", "--", "claude-record-args"},
+		"",
+		"",
+		"",
+		"",
+		"default",
+		"",
+		"",
+		nil,
+		nil,
+		nil,
+		[]string{"GO_WANT_HELPER_PROCESS=1", "CLAUDE_ARGV_FILE=" + argvFile},
+		"",
+		false,
+		core.SpawnOptions{},
+		0,
+		dataDir,
+		cfg,
+	)
+	if err != nil {
+		t.Fatalf("newClaudeSession() error = %v", err)
+	}
+
+	var lines []string
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(argvFile)
+		if err == nil {
+			lines = strings.Split(strings.TrimSpace(string(data)), "\n")
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if len(lines) == 0 {
+		_ = cs.Close()
+		t.Fatal("fake claude did not record argv")
+	}
+
+	var mcpPath string
+	for i := 0; i < len(lines)-1; i++ {
+		if lines[i] == "--mcp-config" {
+			mcpPath = lines[i+1]
+			break
+		}
+	}
+	if mcpPath == "" {
+		_ = cs.Close()
+		t.Fatalf("--mcp-config missing from args: %v", lines)
+	}
+	for _, arg := range lines {
+		if strings.Contains(arg, "agent-token") {
+			_ = cs.Close()
+			t.Fatalf("MCP bearer token leaked into argv: %v", lines)
+		}
+	}
+
+	raw, err := os.ReadFile(mcpPath)
+	if err != nil {
+		_ = cs.Close()
+		t.Fatalf("read MCP config file: %v", err)
+	}
+	var parsed map[string]map[string]map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		_ = cs.Close()
+		t.Fatalf("parse MCP config JSON: %v", err)
+	}
+	server := parsed["mcpServers"]["dirextalk_d1"]
+	if server["type"] != "http" || server["url"] != "https://d1.dirextalk.ai/mcp" {
+		_ = cs.Close()
+		t.Fatalf("server config = %#v", server)
+	}
+	headers, ok := server["headers"].(map[string]any)
+	if !ok {
+		_ = cs.Close()
+		t.Fatalf("headers type = %T", server["headers"])
+	}
+	if headers["Authorization"] != "Bearer agent-token" {
+		_ = cs.Close()
+		t.Fatalf("Authorization header = %#v", headers["Authorization"])
+	}
+
+	if err := cs.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if _, err := os.Stat(mcpPath); !os.IsNotExist(err) {
+		t.Fatalf("MCP config file still exists after Close: err=%v path=%s", err, mcpPath)
+	}
+}
+
 func TestShellJoinArgs(t *testing.T) {
 	tests := []struct {
 		name string
@@ -718,7 +821,14 @@ func TestHelperProcess(t *testing.T) {
 		return
 	}
 
-	mode := os.Args[len(os.Args)-1]
+	modeIdx := len(os.Args) - 1
+	for i, arg := range os.Args {
+		if arg == "--" && i+1 < len(os.Args) {
+			modeIdx = i + 1
+			break
+		}
+	}
+	mode := os.Args[modeIdx]
 	switch mode {
 	case "sleep":
 		time.Sleep(30 * time.Second)
@@ -728,6 +838,15 @@ func TestHelperProcess(t *testing.T) {
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
 	case "stdin-eof-exit":
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		os.Exit(0)
+	case "claude-record-args":
+		path := os.Getenv("CLAUDE_ARGV_FILE")
+		if path == "" {
+			os.Exit(3)
+		}
+		_ = os.WriteFile(path, []byte(strings.Join(os.Args[modeIdx+1:], "\n")), 0o600)
+		_, _ = os.Stdout.WriteString(`{"type":"system","session_id":"test-mcp"}` + "\n")
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		os.Exit(0)
 	default:
