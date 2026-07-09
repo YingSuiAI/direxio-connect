@@ -30,6 +30,7 @@ type antigravitySession struct {
 	mode      string
 	timeout   time.Duration
 	extraEnv  []string
+	mcpConfig core.MCPConfig
 	events    chan core.Event
 	stdin     io.WriteCloser
 	stdinMu   sync.Mutex
@@ -44,7 +45,7 @@ type antigravitySession struct {
 
 var permissionPromptPattern = regexp.MustCompile(`(?is)(allow|approve|permission).{0,400}(\(y/n\)|\(y\/n\)|\(y\/N\)|\(Y\/n\)|\[y\/n\]|\[y\/N\]|\[Y\/n\]|yes\/no)`)
 
-func newAntigravitySession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string, timeout time.Duration) (*antigravitySession, error) {
+func newAntigravitySession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string, timeout time.Duration, mcpConfig core.MCPConfig) (*antigravitySession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	as := &antigravitySession{
@@ -55,6 +56,7 @@ func newAntigravitySession(ctx context.Context, cmd string, extraArgs []string, 
 		mode:      mode,
 		timeout:   timeout,
 		extraEnv:  extraEnv,
+		mcpConfig: mcpConfig,
 		events:    make(chan core.Event, 64),
 		ctx:       sessionCtx,
 		cancel:    cancel,
@@ -145,6 +147,9 @@ func (as *antigravitySession) Send(prompt string, images []core.ImageAttachment,
 	if strings.TrimSpace(as.model) != "" {
 		slog.Warn("antigravitySession: model is configured but ignored because agy does not support --model yet", "model", as.model)
 	}
+	if err := ensureAntigravityMCPConfig(as.mcpConfig); err != nil {
+		return fmt.Errorf("antigravitySession: configure MCP: %w", err)
+	}
 
 	var ctx context.Context
 	var cancel context.CancelFunc
@@ -222,6 +227,89 @@ func (as *antigravitySession) buildAntigravityArgs(chatID string, isResume bool,
 
 func usesInteractivePermission(mode string) bool {
 	return strings.EqualFold(strings.TrimSpace(mode), "default")
+}
+
+func ensureAntigravityMCPConfig(cfg core.MCPConfig) error {
+	if !cfg.Enabled() {
+		return nil
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot determine home dir: %w", err)
+	}
+	for _, path := range antigravityMCPConfigPaths(homeDir) {
+		if err := writeAntigravityMCPConfigFile(path, cfg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func antigravityMCPConfigPaths(homeDir string) []string {
+	return []string{
+		filepath.Join(homeDir, ".gemini", "config", "mcp_config.json"),
+		filepath.Join(homeDir, ".gemini", "antigravity", "mcp_config.json"),
+	}
+}
+
+func writeAntigravityMCPConfigFile(path string, cfg core.MCPConfig) error {
+	doc := map[string]any{}
+	if data, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(data)) > 0 {
+		if err := json.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("read MCP config %s: %w", path, err)
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read MCP config %s: %w", path, err)
+	}
+
+	servers, _ := doc["mcpServers"].(map[string]any)
+	if servers == nil {
+		servers = map[string]any{}
+	}
+	headers := map[string]string{
+		"Authorization": cfg.Authorization,
+	}
+	if cfg.NodeID != "" {
+		headers["DIREXTALK-Agent-Node-Id"] = cfg.NodeID
+	}
+	servers[cfg.ServerName] = map[string]any{
+		"serverUrl": cfg.URL,
+		"headers":   headers,
+	}
+	doc["mcpServers"] = servers
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create MCP config dir %s: %w", filepath.Dir(path), err)
+	}
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		return fmt.Errorf("encode MCP config %s: %w", path, err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".mcp_config-*.json")
+	if err != nil {
+		return fmt.Errorf("create temp MCP config %s: %w", path, err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod temp MCP config %s: %w", tmpPath, err)
+	}
+	if _, err := tmp.Write(out.Bytes()); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temp MCP config %s: %w", tmpPath, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp MCP config %s: %w", tmpPath, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replace MCP config %s: %w", path, err)
+	}
+	return nil
 }
 
 func (as *antigravitySession) readLoop(ctx context.Context, cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer, tempFiles []string, preEntries map[string]bool, sendStartedAt time.Time) {
