@@ -51,9 +51,17 @@ func TestNew_ParsesMCPConfig(t *testing.T) {
 	if len(servers) != 1 {
 		t.Fatalf("mcpServers = %#v", params["mcpServers"])
 	}
+	snakeServers, _ := params["mcp_servers"].([]any)
+	if len(snakeServers) != 1 {
+		t.Fatalf("mcp_servers = %#v", params["mcp_servers"])
+	}
 	server := servers[0].(map[string]any)
 	if server["name"] != "dirextalk-d1" || server["url"] != "https://d1.dirextalk.ai/mcp" {
 		t.Fatalf("server = %#v", server)
+	}
+	snakeServer := snakeServers[0].(map[string]any)
+	if snakeServer["name"] != server["name"] || snakeServer["url"] != server["url"] {
+		t.Fatalf("mcp_servers[0] = %#v, want same as mcpServers[0] %#v", snakeServer, server)
 	}
 }
 

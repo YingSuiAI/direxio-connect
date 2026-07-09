@@ -246,9 +246,14 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string, mcpCon
 }
 
 func acpSessionParams(workDir string, mcpConfig core.MCPConfig) map[string]any {
+	servers := mcpConfig.ACPServers()
 	return map[string]any{
 		"cwd":        workDir,
-		"mcpServers": mcpConfig.ACPServers(),
+		"mcpServers": servers,
+		// Hermes ACP v0.16.0 validates NewSessionRequest with a Pydantic
+		// schema that requires the snake_case field name. Keep mcpServers for
+		// older ACP adapters that accepted the earlier camelCase shape.
+		"mcp_servers": servers,
 	}
 }
 
