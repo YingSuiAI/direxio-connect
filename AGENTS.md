@@ -80,6 +80,13 @@ auto_verify = false
 - Generic release assets must include all supported local coding agent backends. `make build PLATFORMS_INCLUDE=matrix` and `make release-all` are the normal paths; `AGENTS=<name>` is only for explicit narrow debug builds.
 - Release assets must use the `dirextalk-connect` name and the `YingSuiAI/dirextalk-connect` repository.
 - The npm installer must download from GitHub Releases and should tolerate transient network failures with retries.
+- Every npm publish must have the matching git tag, GitHub release, and release
+  assets first. Do not publish `dirextalk-connect@X.Y.Z` while GitHub latest or
+  `vX.Y.Z` is missing; the npm postinstall downloads from that release and will
+  fail without it. The npm `prepublishOnly` check enforces this.
+- Prefer `bash scripts/release.sh` for releases. It builds release assets,
+  creates the matching `vX.Y.Z` tag/release when missing, runs the npm
+  prepublish release-asset check, publishes npm, and verifies a real install.
 - Before claiming npm install works, verify a real install of the just-published package, for example:
 
 ```powershell

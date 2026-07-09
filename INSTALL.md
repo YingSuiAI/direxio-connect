@@ -37,6 +37,19 @@ cd dirextalk-connect
 make build PLATFORMS_INCLUDE=matrix
 ```
 
+## Maintainer Release
+
+Do not publish npm by itself. The npm installer downloads the matching binary
+from GitHub Releases, so each version must have both sides complete:
+
+```bash
+bash scripts/release.sh
+```
+
+The script checks `Makefile` and `npm/package.json` versions, builds all release
+assets, creates the matching `vX.Y.Z` tag/release when missing, runs the npm
+prepublish release-asset check, publishes npm, and verifies a real install.
+
 ## Config
 
 ```toml

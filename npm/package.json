@@ -21,6 +21,7 @@
     "dirextalk-connect": "run.js"
   },
   "scripts": {
+    "prepublishOnly": "node check-release.js",
     "postinstall": "node install.js"
   },
   "files": [

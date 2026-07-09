@@ -37,6 +37,16 @@ cd dirextalk-connect
 make build PLATFORMS_INCLUDE=matrix
 ```
 
+## Maintainer Release
+
+Do not publish npm alone. Each npm version must have the matching `vX.Y.Z` tag,
+GitHub release, and release assets first because npm install downloads the
+binary from GitHub Releases.
+
+```bash
+bash scripts/release.sh
+```
+
 ## Matrix Config
 
 `dirextalk-deployer` should generate this file automatically. Manual config is only for local debugging.
