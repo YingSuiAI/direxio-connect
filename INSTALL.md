@@ -86,6 +86,8 @@ auto_verify = false
 
 Set `<agent-backend>` to the runtime you want to bridge, such as `acp`, `claudecode`, `codex`, `gemini`, `cursor`, `copilot`, `qoder`, or `opencode`.
 
+Remote MCP is fail-closed: a partial or malformed canonical config, an unknown capability, or a backend that cannot safely consume remote HTTP MCP stops startup with an actionable error. The endpoint must be absolute HTTPS at exactly `/mcp` with no query or fragment, and authorization must be a non-empty Bearer token. `acp`, `claudecode`, `codex`, `copilot`, `gemini`, `kimi`, `opencode`, and `qoder` use official session/process injection. `antigravity`, `cursor`, and `iflow` are host-managed; `devin`, `pi`, `reasonix`, and `tmux` are unsupported for MCP but remain available without MCP. Set `mcp_enabled = false` when keeping staged MCP values inactive.
+
 `room_id` is required and must be the real persisted Dirextalk `agent_room_id`. Legacy pseudo ids such as `!agent:<domain>` are rejected.
 
 Start foreground:

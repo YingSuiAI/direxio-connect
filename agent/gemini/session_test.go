@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/internal/testutil"
 )
 
 // sanitizeFileName mirrors the logic in geminiSession.Send for file name sanitization.
@@ -312,19 +314,33 @@ func TestHandleMessage_MixedDeltaAndNonDelta(t *testing.T) {
 	}
 }
 
-func TestEnsureGeminiMCPConfigWritesGlobalSettings(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
-	if err := ensureGeminiMCPConfig(cfg); err != nil {
-		t.Fatalf("ensureGeminiMCPConfig: %v", err)
+func TestCreateGeminiMCPSettingsFileIsSessionScoped(t *testing.T) {
+	home := testutil.IsolatedHome(t)
+	tempRoot := filepath.Join(home, "session-temp")
+	if err := os.MkdirAll(tempRoot, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
 	}
 
-	settingsPath := geminiMCPSettingsPath(home)
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	settingsPath, cleanup, err := createGeminiMCPSettingsFile(tempRoot, cfg)
+	if err != nil {
+		t.Fatalf("createGeminiMCPSettingsFile: %v", err)
+	}
+	t.Cleanup(cleanup)
+	testutil.AssertWithinRoot(t, tempRoot, settingsPath)
+
 	data, err := os.ReadFile(settingsPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", settingsPath, err)
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(settingsPath)
+		if err != nil {
+			t.Fatalf("Stat(%s): %v", settingsPath, err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Fatalf("mode = %o, want 600", got)
+		}
 	}
 
 	var parsed struct {
@@ -351,65 +367,88 @@ func TestEnsureGeminiMCPConfigWritesGlobalSettings(t *testing.T) {
 	if server.Type != "" || server.URL != "" {
 		t.Fatalf("should not write legacy type/url fields: %#v", server)
 	}
+	if _, err := os.Stat(filepath.Join(home, ".gemini", "settings.json")); !os.IsNotExist(err) {
+		t.Fatalf("global Gemini settings were written: %v", err)
+	}
+
+	env := buildGeminiSessionEnv(
+		[]string{"PATH=/bin", "GEMINI_CLI_SYSTEM_SETTINGS_PATH=unsafe"},
+		[]string{"GEMINI_API_KEY=key"},
+		settingsPath,
+	)
+	if got := envValue(env, "GEMINI_CLI_SYSTEM_SETTINGS_PATH"); got != settingsPath {
+		t.Fatalf("GEMINI_CLI_SYSTEM_SETTINGS_PATH = %q, want %q", got, settingsPath)
+	}
+
+	cleanup()
+	if _, err := os.Stat(settingsPath); !os.IsNotExist(err) {
+		t.Fatalf("session Gemini settings survived cleanup: %v", err)
+	}
 }
 
-func TestEnsureGeminiMCPConfigPreservesSettingsAndAllowsServer(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	settingsPath := geminiMCPSettingsPath(home)
-	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	existing := `{
-  "theme": "Default",
-  "mcp": {
-    "allowed": ["existing"],
-    "excluded": ["dirextalk-d1", "other"]
-  },
-  "mcpServers": {
-    "existing": {"command": "node"}
-  }
-}`
-	if err := os.WriteFile(settingsPath, []byte(existing), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+func TestGeminiMCPSettingsCleanupOnNormalExit(t *testing.T) {
+	testutil.IsolatedHome(t)
+	tempRoot := t.TempDir()
+	t.Setenv("TMP", tempRoot)
+	t.Setenv("TEMP", tempRoot)
+	t.Setenv("TMPDIR", tempRoot)
+	t.Setenv("CC_MOCK_GEMINI", "1")
 
-	cfg := core.MCPConfigFromAgentToken("dirextalk-d1", "https://d1.dirextalk.ai/mcp", "agent-token", "")
-	if err := ensureGeminiMCPConfig(cfg); err != nil {
-		t.Fatalf("ensureGeminiMCPConfig: %v", err)
-	}
-
-	data, err := os.ReadFile(settingsPath)
+	bin, err := os.Executable()
 	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
+		t.Fatalf("Executable: %v", err)
 	}
-	var parsed map[string]any
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
+	cfg := core.MCPConfigFromAgentToken("dirextalk-d1", "https://d1.example/mcp", "agent-token", "")
+	session, err := newGeminiSession(context.Background(), bin, nil, t.TempDir(), "", "default", "", nil, 0, cfg)
+	if err != nil {
+		t.Fatalf("newGeminiSession: %v", err)
 	}
-	if parsed["theme"] != "Default" {
-		t.Fatalf("existing top-level setting not preserved: %#v", parsed)
+	if err := session.Send("hello", nil, nil); err != nil {
+		t.Fatalf("Send: %v", err)
 	}
-	servers, ok := parsed["mcpServers"].(map[string]any)
-	if !ok {
-		t.Fatalf("mcpServers type = %T", parsed["mcpServers"])
+	session.wg.Wait()
+
+	matches, globErr := filepath.Glob(filepath.Join(tempRoot, "dirextalk-gemini-mcp-*"))
+	if globErr != nil || len(matches) != 0 {
+		t.Fatalf("temporary Gemini MCP settings survived normal exit: %#v, err = %v", matches, globErr)
 	}
-	if _, ok := servers["existing"]; !ok {
-		t.Fatalf("existing server not preserved: %#v", servers)
+	if err := session.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
-	if _, ok := servers["dirextalk-d1"]; !ok {
-		t.Fatalf("dirextalk server missing: %#v", servers)
+}
+
+func TestGeminiMCPSettingsCleanupWhenProcessStartFails(t *testing.T) {
+	testutil.IsolatedHome(t)
+	tempRoot := t.TempDir()
+	t.Setenv("TMP", tempRoot)
+	t.Setenv("TEMP", tempRoot)
+	t.Setenv("TMPDIR", tempRoot)
+
+	cfg := core.MCPConfigFromAgentToken("dirextalk-d1", "https://d1.example/mcp", "agent-token", "")
+	session, err := newGeminiSession(context.Background(), filepath.Join(tempRoot, "missing-gemini"), nil, t.TempDir(), "", "default", "", nil, 0, cfg)
+	if err != nil {
+		t.Fatalf("newGeminiSession: %v", err)
 	}
-	mcp, ok := parsed["mcp"].(map[string]any)
-	if !ok {
-		t.Fatalf("mcp type = %T", parsed["mcp"])
+	if err := session.Send("hello", nil, nil); err == nil {
+		t.Fatal("Send succeeded with a missing binary")
 	}
-	if !jsonArrayContainsString(mcp["allowed"], "dirextalk-d1") {
-		t.Fatalf("allowed should include dirextalk-d1: %#v", mcp["allowed"])
+	matches, globErr := filepath.Glob(filepath.Join(tempRoot, "dirextalk-gemini-mcp-*"))
+	if globErr != nil || len(matches) != 0 {
+		t.Fatalf("temporary Gemini MCP settings survived start failure: %#v, err = %v", matches, globErr)
 	}
-	if jsonArrayContainsString(mcp["excluded"], "dirextalk-d1") {
-		t.Fatalf("excluded should not include dirextalk-d1: %#v", mcp["excluded"])
+	if err := session.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for i := len(env) - 1; i >= 0; i-- {
+		if strings.HasPrefix(env[i], prefix) {
+			return strings.TrimPrefix(env[i], prefix)
+		}
+	}
+	return ""
 }
 
 func TestHandleInit_StoresSessionID(t *testing.T) {

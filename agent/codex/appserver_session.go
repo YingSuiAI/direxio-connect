@@ -269,6 +269,7 @@ func (s *appServerSession) connect() error {
 	if s.codexHome != "" {
 		env = append(env, "CODEX_HOME="+s.codexHome)
 	}
+	env = appendCodexMCPProcessEnv(env, s.mcpConfig)
 	if len(env) > 0 {
 		cmd.Env = core.MergeEnv(os.Environ(), env)
 	}

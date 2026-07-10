@@ -15,7 +15,7 @@ import (
 )
 
 func init() {
-	core.RegisterAgent("tmux", New)
+	core.RegisterAgent("tmux", New, core.MCPBackendCapability{Kind: core.MCPCapabilityUnsupported, Reason: "tmux is only a terminal transport and has no verifiable per-session remote HTTP MCP consumer"})
 }
 
 // Agent drives a persistent tmux pane as an interactive shell agent.
@@ -64,6 +64,9 @@ func New(opts map[string]any) (core.Agent, error) {
 
 	shell, _ := opts["shell"].(string)
 	initCmd, _ := opts["init_command"].(string)
+	if core.ParseMCPConfig(opts).Enabled() {
+		return nil, fmt.Errorf("tmux: MCP capability is unsupported; tmux has no verifiable per-session remote HTTP MCP consumer")
+	}
 	configEnv := core.ParseConfigEnv(opts)
 
 	startupWaitMs := 0

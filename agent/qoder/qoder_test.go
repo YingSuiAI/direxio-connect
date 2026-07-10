@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -169,19 +170,11 @@ func TestAgent_SetModel(t *testing.T) {
 
 func TestWriteQoderMCPConfigFile(t *testing.T) {
 	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
-	path, err := writeQoderMCPConfigFile(t.TempDir(), cfg)
+	path, cleanup, err := writeQoderMCPConfigFile(t.TempDir(), cfg)
 	if err != nil {
 		t.Fatalf("writeQoderMCPConfigFile: %v", err)
 	}
-	defer os.Remove(path)
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("mode = %o, want 600", got)
-	}
+	defer cleanup()
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -209,6 +202,84 @@ func TestWriteQoderMCPConfigFile(t *testing.T) {
 	}
 	if server.Headers["DIREXTALK-Agent-Node-Id"] != "node-1" {
 		t.Fatalf("node header = %q", server.Headers["DIREXTALK-Agent-Node-Id"])
+	}
+}
+
+func TestQoderMCPConfigCleanupAfterNormalExit(t *testing.T) {
+	root := isolateQoderTempRoot(t)
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	qs, err := newQoderSession(
+		context.Background(),
+		os.Args[0],
+		[]string{"-test.run=TestQoderHelperProcess", "--"},
+		t.TempDir(),
+		"",
+		"default",
+		"",
+		[]string{"QODER_HELPER_PROCESS=1"},
+		cfg,
+	)
+	if err != nil {
+		t.Fatalf("newQoderSession: %v", err)
+	}
+	defer qs.Close()
+
+	if err := qs.Send("hello", nil, nil); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	qs.wg.Wait()
+	assertNoQoderMCPTempDirs(t, root)
+}
+
+func TestQoderMCPConfigCleanupAfterStartFailure(t *testing.T) {
+	root := isolateQoderTempRoot(t)
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	qs, err := newQoderSession(
+		context.Background(),
+		filepath.Join(t.TempDir(), "missing-qoder"),
+		nil,
+		t.TempDir(),
+		"",
+		"default",
+		"",
+		nil,
+		cfg,
+	)
+	if err != nil {
+		t.Fatalf("newQoderSession: %v", err)
+	}
+	defer qs.Close()
+
+	if err := qs.Send("hello", nil, nil); err == nil {
+		t.Fatal("Send succeeded with missing command")
+	}
+	assertNoQoderMCPTempDirs(t, root)
+}
+
+func TestQoderHelperProcess(t *testing.T) {
+	if os.Getenv("QODER_HELPER_PROCESS") != "1" {
+		return
+	}
+	os.Exit(0)
+}
+
+func isolateQoderTempRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("TEMP", root)
+	t.Setenv("TMP", root)
+	t.Setenv("TMPDIR", root)
+	return root
+}
+
+func assertNoQoderMCPTempDirs(t *testing.T, root string) {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(root, "dirextalk-qoder-mcp-*"))
+	if err != nil {
+		t.Fatalf("Glob: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temporary MCP directories survived cleanup: %v", matches)
 	}
 }
 

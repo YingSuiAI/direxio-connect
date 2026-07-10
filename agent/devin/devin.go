@@ -32,7 +32,7 @@ import (
 )
 
 func init() {
-	core.RegisterAgent("devin", New)
+	core.RegisterAgent("devin", New, core.MCPBackendCapability{Kind: core.MCPCapabilityUnsupported, Reason: "Devin HTTP API has no remote MCP injection surface"})
 }
 
 // Agent embeds *acp.Agent so it inherits StartSession, ListSessions,

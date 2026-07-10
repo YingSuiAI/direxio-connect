@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/internal/securetemp"
 )
 
 // claudeSession manages a long-running Claude Code process using
@@ -73,10 +74,9 @@ type claudeSession struct {
 	// or when there is nothing to append.
 	promptFilePath string
 
-	// mcpConfigFilePath is the per-spawn JSON file passed through
-	// --mcp-config. It contains bearer credentials, so it is written 0600
-	// and removed when the session closes.
-	mcpConfigFilePath string
+	// mcpCleanup removes the private per-spawn directory containing the
+	// credential-bearing JSON file passed through --mcp-config.
+	mcpCleanup func()
 }
 
 // StartupWarning implements core.StartupWarner. Returns a non-empty string
@@ -158,9 +158,9 @@ func writeTempAppendPromptFile(ccDataDir, content string) (string, error) {
 	return f.Name(), nil
 }
 
-func writeClaudeMCPConfigFile(ccDataDir string, cfg core.MCPConfig) (string, error) {
+func writeClaudeMCPConfigFile(ccDataDir string, cfg core.MCPConfig) (string, func(), error) {
 	if !cfg.Enabled() {
-		return "", nil
+		return "", func() {}, nil
 	}
 	base := ccDataDir
 	if base == "" {
@@ -168,30 +168,17 @@ func writeClaudeMCPConfigFile(ccDataDir string, cfg core.MCPConfig) (string, err
 	}
 	dir := filepath.Join(base, "agent-mcp")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	f, err := os.CreateTemp(dir, "claude-mcp-*.json")
+	out, err := json.MarshalIndent(cfg.MCPServersConfig(), "", "  ")
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	path := f.Name()
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(cfg.MCPServersConfig()); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return "", err
+	path, cleanup, err := securetemp.WriteFile(dir, "dirextalk-claude-mcp-", "mcp-config.json", append(out, '\n'))
+	if err != nil {
+		return "", nil, err
 	}
-	if err := f.Chmod(0o600); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return "", err
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(path)
-		return "", err
-	}
-	return path, nil
+	return path, cleanup, nil
 }
 
 // writeFileAtomic writes data to path via a temp file + rename, so a
@@ -343,7 +330,7 @@ func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs 
 	if maxContextTokens > 0 {
 		innerArgs = append(innerArgs, "--max-context-tokens", strconv.Itoa(maxContextTokens))
 	}
-	mcpConfigFilePath, err := writeClaudeMCPConfigFile(ccDataDir, mcpConfig)
+	mcpConfigFilePath, cleanupMCP, err := writeClaudeMCPConfigFile(ccDataDir, mcpConfig)
 	if err != nil {
 		if promptFilePath != "" && !promptFileIsShared {
 			_ = os.Remove(promptFilePath)
@@ -351,6 +338,12 @@ func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs 
 		cancel()
 		return nil, fmt.Errorf("claudeSession: write MCP config file: %w", err)
 	}
+	cleanupMCPOnFailure := true
+	defer func() {
+		if cleanupMCPOnFailure {
+			cleanupMCP()
+		}
+	}()
 	if mcpConfigFilePath != "" {
 		innerArgs = append(innerArgs, "--mcp-config", mcpConfigFilePath)
 	}
@@ -469,9 +462,6 @@ func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs 
 		if promptFilePath != "" && !promptFileIsShared {
 			_ = os.Remove(promptFilePath)
 		}
-		if mcpConfigFilePath != "" {
-			_ = os.Remove(mcpConfigFilePath)
-		}
 		cancel()
 		return nil, fmt.Errorf("claudeSession: start: %w", err)
 	}
@@ -497,13 +487,14 @@ func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs 
 		ccHooks:             newCCPermissionHookRunner(workDir),
 		startupWarning:      rootDowngradeWarning,
 		promptFilePath:      cleanupPromptPath,
-		mcpConfigFilePath:   mcpConfigFilePath,
+		mcpCleanup:          cleanupMCP,
 	}
 	cs.setPermissionMode(mode)
 	cs.sessionID.Store(sessionID)
 	cs.alive.Store(true)
 
 	go cs.readLoop(stdout, &stderrBuf)
+	cleanupMCPOnFailure = false
 
 	return cs, nil
 }
@@ -555,6 +546,9 @@ func (cs *claudeSession) startReadLoopWait(stdout io.ReadCloser) (<-chan error, 
 
 func (cs *claudeSession) finishReadLoop(waitErrCh <-chan error, stderrBuf *bytes.Buffer) {
 	err := <-waitErrCh
+	if cs.mcpCleanup != nil {
+		cs.mcpCleanup()
+	}
 
 	cs.alive.Store(false)
 	if err != nil {
@@ -1220,8 +1214,8 @@ func (cs *claudeSession) Close() error {
 		if cs.promptFilePath != "" {
 			_ = os.Remove(cs.promptFilePath)
 		}
-		if cs.mcpConfigFilePath != "" {
-			_ = os.Remove(cs.mcpConfigFilePath)
+		if cs.mcpCleanup != nil {
+			cs.mcpCleanup()
 		}
 	}()
 

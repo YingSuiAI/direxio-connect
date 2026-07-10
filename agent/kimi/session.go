@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/YingSuiAI/dirextalk-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/internal/securetemp"
 )
 
 // kimSession manages multi-turn conversations with the Kimi CLI.
@@ -126,7 +127,7 @@ func (ks *kimiSession) Send(prompt string, images []core.ImageAttachment, files 
 		fullPrompt += "\n\n[Attached files saved at: " + strings.Join(fileRefs, ", ") + "]"
 	}
 
-	mcpConfigFilePath, err := writeKimiMCPConfigFile(ks.mcpConfig)
+	mcpConfigFilePath, cleanupMCP, err := writeKimiMCPConfigFile("", ks.mcpConfig)
 	if err != nil {
 		return fmt.Errorf("kimiSession: write MCP config file: %w", err)
 	}
@@ -145,9 +146,7 @@ func (ks *kimiSession) Send(prompt string, images []core.ImageAttachment, files 
 	started := false
 	defer func() {
 		if !started {
-			if mcpConfigFilePath != "" {
-				_ = os.Remove(mcpConfigFilePath)
-			}
+			cleanupMCP()
 			cancel()
 		}
 	}()
@@ -180,10 +179,7 @@ func (ks *kimiSession) Send(prompt string, images []core.ImageAttachment, files 
 		defer cancel()
 		tempFiles := append([]string{}, imageRefs...)
 		tempFiles = append(tempFiles, fileRefs...)
-		if mcpConfigFilePath != "" {
-			tempFiles = append(tempFiles, mcpConfigFilePath)
-		}
-		ks.readLoop(ctx, cmd, stdout, &stderrBuf, tempFiles)
+		ks.readLoop(ctx, cmd, stdout, &stderrBuf, tempFiles, cleanupMCP)
 	}()
 
 	return nil
@@ -218,40 +214,24 @@ func (ks *kimiSession) buildKimiArgs(fullPrompt, sid, mcpConfigFilePath string) 
 	return append(args, "--prompt", fullPrompt)
 }
 
-func writeKimiMCPConfigFile(cfg core.MCPConfig) (string, error) {
+func writeKimiMCPConfigFile(tempRoot string, cfg core.MCPConfig) (string, func(), error) {
 	if !cfg.Enabled() {
-		return "", nil
+		return "", func() {}, nil
 	}
-	f, err := os.CreateTemp("", "kimi-mcp-*.json")
+	out, err := json.MarshalIndent(cfg.MCPServersConfig(), "", "  ")
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	path := f.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(path)
-		}
-	}()
-	if err := f.Chmod(0o600); err != nil {
-		_ = f.Close()
-		return "", err
+	path, cleanup, err := securetemp.WriteFile(tempRoot, "dirextalk-kimi-mcp-", "mcp-config.json", append(out, '\n'))
+	if err != nil {
+		return "", nil, err
 	}
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(cfg.MCPServersConfig()); err != nil {
-		_ = f.Close()
-		return "", err
-	}
-	if err := f.Close(); err != nil {
-		return "", err
-	}
-	cleanup = false
-	return path, nil
+	return path, cleanup, nil
 }
 
-func (ks *kimiSession) readLoop(ctx context.Context, cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer, tempFiles []string) {
+func (ks *kimiSession) readLoop(ctx context.Context, cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer, tempFiles []string, cleanupMCP func()) {
 	defer ks.wg.Done()
+	defer cleanupMCP()
 	defer func() {
 		for _, f := range tempFiles {
 			os.Remove(f)

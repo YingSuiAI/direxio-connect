@@ -19,7 +19,7 @@ import (
 )
 
 func init() {
-	core.RegisterAgent("gemini", New)
+	core.RegisterAgent("gemini", New, core.MCPBackendCapability{Kind: core.MCPCapabilitySession, Reason: "per-process GEMINI_CLI_SYSTEM_SETTINGS_PATH temporary file"})
 }
 
 // Agent drives the Gemini CLI in headless mode using -p --output-format stream-json.

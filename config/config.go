@@ -14,6 +14,8 @@ import (
 	"sync"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/YingSuiAI/dirextalk-connect/core"
 )
 
 // validRunAsUserName is the portable-username character set plus digits.
@@ -1020,6 +1022,9 @@ func (c *Config) validateInternal(permissive bool) error {
 		}
 		if proj.Agent.Type == "" {
 			return fmt.Errorf("config: %s.agent.type is required", prefix)
+		}
+		if err := core.ValidateMCPOptions(proj.Agent.Options); err != nil {
+			return fmt.Errorf("config: %s.agent.options: %w", prefix, err)
 		}
 		if len(proj.Platforms) == 0 && !permissive {
 			return fmt.Errorf("config: %s needs at least one [[projects.platforms]]", prefix)

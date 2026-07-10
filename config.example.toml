@@ -43,8 +43,14 @@ type = "<agent-backend>"
 [projects.agent.options]
 work_dir = "/path/to/project"
 # Optional Dirextalk remote MCP. dirextalk-deployer writes these automatically.
-# Codex receives native mcp_servers config, ACP receives session mcpServers,
-# and other backends receive DIREXTALK_MCP_* environment variables.
+# MCP is fail-closed: partial values and backends without an explicit safe
+# capability are rejected. Set mcp_enabled = false to keep staged values inert.
+# URL must be absolute HTTPS at exactly /mcp (no query/fragment), and auth must
+# resolve to a non-empty Bearer token. Session/process injection: acp,
+# claudecode, codex, copilot, gemini, kimi, opencode, qoder. Host-managed:
+# antigravity, cursor, iflow. Unsupported for MCP (still usable without MCP):
+# devin, pi, reasonix, tmux.
+# mcp_enabled = true
 # mcp_url = "https://im.example.com/mcp"
 # mcp_server_name = "dirextalk-im_example_com"
 # mcp_agent_token = "dirextalk-agent-token"

@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -24,6 +25,110 @@ func TestParseMCPConfig_FromAgentToken(t *testing.T) {
 	}
 	if cfg.NodeID != "codex-d1" {
 		t.Fatalf("NodeID = %q", cfg.NodeID)
+	}
+}
+
+func TestValidateMCPOptions_RejectsPartialConfiguration(t *testing.T) {
+	tests := []struct {
+		name string
+		opts map[string]any
+		want []string
+	}{
+		{
+			name: "url only",
+			opts: map[string]any{"mcp_url": "https://d1.dirextalk.ai/mcp"},
+			want: []string{"mcp_server_name", "mcp_agent_token"},
+		},
+		{
+			name: "token only",
+			opts: map[string]any{"mcp_agent_token": "agent-token"},
+			want: []string{"mcp_server_name", "mcp_url"},
+		},
+		{
+			name: "explicit enable without fields",
+			opts: map[string]any{"mcp_enabled": true},
+			want: []string{"mcp_server_name", "mcp_url", "mcp_agent_token"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateMCPOptions(tt.opts)
+			if err == nil {
+				t.Fatal("ValidateMCPOptions() = nil, want partial-config error")
+			}
+			for _, fragment := range tt.want {
+				if !strings.Contains(err.Error(), fragment) {
+					t.Fatalf("ValidateMCPOptions() = %q, want mention of %q", err, fragment)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateMCPOptions_AllowsAbsentOrExplicitlyDisabledConfiguration(t *testing.T) {
+	for _, opts := range []map[string]any{
+		nil,
+		{},
+		{"mcp_enabled": false, "mcp_url": "https://ignored.example/mcp"},
+	} {
+		if err := ValidateMCPOptions(opts); err != nil {
+			t.Fatalf("ValidateMCPOptions(%#v) = %v", opts, err)
+		}
+	}
+}
+
+func TestValidateMCPOptions_RequiresCanonicalHTTPSAndBearerShapes(t *testing.T) {
+	valid := []map[string]any{
+		{
+			"mcp_server_name":   "dirextalk-d1",
+			"mcp_url":           "https://d1.dirextalk.ai/mcp",
+			"mcp_authorization": "Bearer agent-token",
+		},
+		{
+			"mcp_server_name": "dirextalk-d1",
+			"mcp_domain":      "d1.dirextalk.ai",
+			"mcp_agent_token": "agent-token",
+		},
+	}
+	for i, opts := range valid {
+		if err := ValidateMCPOptions(opts); err != nil {
+			t.Fatalf("valid case %d: %v", i, err)
+		}
+	}
+
+	tests := []struct {
+		name          string
+		url           string
+		authorization string
+	}{
+		{name: "relative URL", url: "/mcp", authorization: "Bearer token"},
+		{name: "HTTP URL", url: "http://example.com/mcp", authorization: "Bearer token"},
+		{name: "empty host", url: "https:///mcp", authorization: "Bearer token"},
+		{name: "port without host", url: "https://:443/mcp", authorization: "Bearer token"},
+		{name: "userinfo", url: "https://user@example.com/mcp", authorization: "Bearer token"},
+		{name: "wrong path", url: "https://example.com/other", authorization: "Bearer token"},
+		{name: "query", url: "https://example.com/mcp?token=hidden", authorization: "Bearer token"},
+		{name: "fragment", url: "https://example.com/mcp#hidden", authorization: "Bearer token"},
+		{name: "basic authorization", url: "https://example.com/mcp", authorization: "Basic super-secret-token"},
+		{name: "empty bearer", url: "https://example.com/mcp", authorization: "Bearer "},
+		{name: "whitespace in token", url: "https://example.com/mcp", authorization: "Bearer super-secret-token extra"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateMCPOptions(map[string]any{
+				"mcp_server_name":   "dirextalk-d1",
+				"mcp_url":           tt.url,
+				"mcp_authorization": tt.authorization,
+			})
+			if err == nil {
+				t.Fatal("ValidateMCPOptions() = nil, want malformed canonical MCP error")
+			}
+			if strings.Contains(err.Error(), "super-secret-token") || strings.Contains(err.Error(), "token=hidden") {
+				t.Fatalf("validation error leaked a credential: %q", err)
+			}
+		})
 	}
 }
 
@@ -114,18 +219,19 @@ func TestMCPConfig_MCPServersConfig(t *testing.T) {
 	}
 }
 
-func TestCreateAgent_AddsMCPEnvForAllFactories(t *testing.T) {
+func TestCreateAgent_AddsMCPEnvForDeclaredConditionalFactory(t *testing.T) {
 	agentName := "mcp-test-agent"
 	var captured map[string]any
 	RegisterAgent(agentName, func(opts map[string]any) (Agent, error) {
 		captured = opts
 		return stubMCPAgent{}, nil
-	})
+	}, MCPBackendCapability{Kind: MCPCapabilityConditional, ConditionalOption: "mcp_wrapper", Reason: "test wrapper"})
 
 	_, err := CreateAgent(agentName, map[string]any{
 		"mcp_server_name": "dirextalk-d1",
 		"mcp_url":         "https://d1.dirextalk.ai/mcp",
 		"mcp_agent_token": "agent-token",
+		"mcp_wrapper":     true,
 	})
 	if err != nil {
 		t.Fatalf("CreateAgent() error = %v", err)

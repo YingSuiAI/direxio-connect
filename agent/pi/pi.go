@@ -2,7 +2,6 @@ package pi
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,7 +17,7 @@ import (
 )
 
 func init() {
-	core.RegisterAgent("pi", New)
+	core.RegisterAgent("pi", New, core.MCPBackendCapability{Kind: core.MCPCapabilityUnsupported, Reason: "Pi has no built-in remote HTTP MCP client and no verified MCP-consuming extension contract"})
 }
 
 // Agent drives the pi coding agent CLI (`pi --mode json --no-input`).
@@ -26,7 +25,6 @@ type Agent struct {
 	cmd          string   // path to pi binary
 	cliExtraArgs []string // extra args from cmd after the binary name
 	configEnv    []string // env vars from [projects.agent.options.env]
-	mcpConfig    core.MCPConfig
 	workDir      string
 	model        string
 	mode         string // "default" | "yolo"
@@ -43,8 +41,10 @@ func New(opts map[string]any) (core.Agent, error) {
 	model, _ := opts["model"].(string)
 	mode, _ := opts["mode"].(string)
 	mode = normalizeMode(mode)
-
 	cmd, extraArgs := core.ParseCmdOpts(opts, "pi")
+	if core.ParseMCPConfig(opts).Enabled() {
+		return nil, fmt.Errorf("pi: MCP capability is unsupported; Pi has no verified remote HTTP MCP consumer")
+	}
 
 	if _, err := exec.LookPath(cmd); err != nil {
 		return nil, fmt.Errorf("pi: '%s' not found in PATH, install with: npm install -g @mariozechner/pi-coding-agent", cmd)
@@ -61,7 +61,6 @@ func New(opts map[string]any) (core.Agent, error) {
 		cmd:          cmd,
 		cliExtraArgs: extraArgs,
 		configEnv:    core.ParseConfigEnv(opts),
-		mcpConfig:    core.ParseMCPConfig(opts),
 		workDir:      workDir,
 		model:        model,
 		mode:         mode,
@@ -117,12 +116,9 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	extraArgs := append([]string{}, a.cliExtraArgs...)
 	extraEnv := append([]string(nil), a.configEnv...)
 	extraEnv = append(extraEnv, a.sessionEnv...)
-	mcpConfig := a.mcpConfig
+	workDir := a.workDir
 	a.mu.Unlock()
-	if err := ensurePiMCPConfig(mcpConfig); err != nil {
-		return nil, fmt.Errorf("pi: configure MCP: %w", err)
-	}
-	return newPiSession(ctx, a.cmd, extraArgs, a.workDir, model, mode, thinking, sessionID, extraEnv)
+	return newPiSession(ctx, a.cmd, extraArgs, workDir, model, mode, thinking, sessionID, extraEnv)
 }
 
 func (a *Agent) ListSessions(_ context.Context) ([]core.AgentSessionInfo, error) {
@@ -375,87 +371,6 @@ func settingsPath() string {
 		return ""
 	}
 	return filepath.Join(dir, "settings.json")
-}
-
-func piMCPConfigPath() string {
-	dir := piSettingsDir()
-	if dir == "" {
-		return ""
-	}
-	return filepath.Join(dir, "mcp.json")
-}
-
-func ensurePiMCPConfig(cfg core.MCPConfig) error {
-	if !cfg.Enabled() {
-		return nil
-	}
-	path := piMCPConfigPath()
-	if path == "" {
-		return fmt.Errorf("cannot determine mcp.json path")
-	}
-	return writePiMCPConfig(path, cfg)
-}
-
-func writePiMCPConfig(path string, cfg core.MCPConfig) error {
-	doc := map[string]any{}
-	if data, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(data)) > 0 {
-		if err := json.Unmarshal(data, &doc); err != nil {
-			return fmt.Errorf("read Pi MCP config %s: %w", path, err)
-		}
-	} else if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read Pi MCP config %s: %w", path, err)
-	}
-
-	servers, _ := doc["mcpServers"].(map[string]any)
-	if servers == nil {
-		servers = map[string]any{}
-	}
-	headers := map[string]string{
-		"Authorization": cfg.Authorization,
-	}
-	if cfg.NodeID != "" {
-		headers["DIREXTALK-Agent-Node-Id"] = cfg.NodeID
-	}
-	servers[cfg.ServerName] = map[string]any{
-		"transport": "streamable-http",
-		"url":       cfg.URL,
-		"lifecycle": "eager",
-		"headers":   headers,
-	}
-	doc["mcpServers"] = servers
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("create Pi MCP config dir %s: %w", filepath.Dir(path), err)
-	}
-	var out bytes.Buffer
-	enc := json.NewEncoder(&out)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(doc); err != nil {
-		return fmt.Errorf("encode Pi MCP config %s: %w", path, err)
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".mcp-*.json")
-	if err != nil {
-		return fmt.Errorf("create temp Pi MCP config %s: %w", path, err)
-	}
-	tmpPath := tmp.Name()
-	defer func() {
-		_ = os.Remove(tmpPath)
-	}()
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("chmod temp Pi MCP config %s: %w", tmpPath, err)
-	}
-	if _, err := tmp.Write(out.Bytes()); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write temp Pi MCP config %s: %w", tmpPath, err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temp Pi MCP config %s: %w", tmpPath, err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("replace Pi MCP config %s: %w", path, err)
-	}
-	return nil
 }
 
 // piSettings represents the structure of pi's settings.json relevant fields.

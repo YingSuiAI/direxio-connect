@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/BurntSushi/toml"
+	"github.com/YingSuiAI/dirextalk-connect/internal/testutil"
 )
 
 func TestConfigValidate(t *testing.T) {
@@ -523,9 +524,26 @@ func TestValidateProjectDisplayConfig(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsPartialMCPAgentOptions(t *testing.T) {
+	cfg := Config{Projects: []ProjectConfig{validProject("demo")}}
+	cfg.Projects[0].Agent.Options = map[string]any{
+		"mcp_server_name": "dirextalk-d1",
+		"mcp_url":         "https://d1.dirextalk.ai/mcp",
+	}
+
+	err := cfg.validate()
+	if err == nil {
+		t.Fatal("validate() = nil, want partial MCP configuration error")
+	}
+	for _, fragment := range []string{"projects[0].agent.options", "mcp_agent_token"} {
+		if !strings.Contains(err.Error(), fragment) {
+			t.Fatalf("validate() = %q, want mention of %q", err, fragment)
+		}
+	}
+}
+
 func TestLoad_DefaultsDataDir(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	dir := testutil.IsolatedHome(t)
 
 	cfgPath := filepath.Join(dir, "config.toml")
 	if err := os.WriteFile(cfgPath, []byte(baseConfigTOML), 0o644); err != nil {

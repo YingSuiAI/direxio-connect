@@ -42,7 +42,11 @@ type acpModesBlock struct {
 type acpInitializeResult struct {
 	ProtocolVersion   int `json:"protocolVersion"`
 	AgentCapabilities struct {
-		LoadSession         bool `json:"loadSession"`
+		LoadSession     bool `json:"loadSession"`
+		MCPCapabilities struct {
+			HTTP bool `json:"http"`
+			SSE  bool `json:"sse"`
+		} `json:"mcpCapabilities"`
 		SessionCapabilities struct {
 			// ACP advertises capabilities as objects (possibly empty);
 			// treat "field present" as "supported" regardless of contents.

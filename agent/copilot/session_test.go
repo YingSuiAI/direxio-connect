@@ -6,24 +6,41 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/internal/testutil"
 )
 
-func TestEnsureCopilotMCPConfigWritesGlobalConfig(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
-	if err := ensureCopilotMCPConfig(cfg); err != nil {
-		t.Fatalf("ensureCopilotMCPConfig: %v", err)
+func TestCreateCopilotMCPConfigFileIsSessionScoped(t *testing.T) {
+	home := testutil.IsolatedHome(t)
+	tempRoot := filepath.Join(home, "session-temp")
+	if err := os.MkdirAll(tempRoot, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
 	}
 
-	configPath := copilotMCPConfigPath(home)
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	configPath, cleanup, err := createCopilotMCPConfigFile(tempRoot, cfg)
+	if err != nil {
+		t.Fatalf("createCopilotMCPConfigFile: %v", err)
+	}
+	t.Cleanup(cleanup)
+	testutil.AssertWithinRoot(t, tempRoot, configPath)
+
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", configPath, err)
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(configPath)
+		if err != nil {
+			t.Fatalf("Stat(%s): %v", configPath, err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Fatalf("mode = %o, want 600", got)
+		}
 	}
 
 	var parsed struct {
@@ -54,45 +71,72 @@ func TestEnsureCopilotMCPConfigWritesGlobalConfig(t *testing.T) {
 	if len(server.Tools) != 1 || server.Tools[0] != "*" {
 		t.Fatalf("tools = %#v, want [*]", server.Tools)
 	}
+	if _, err := os.Stat(filepath.Join(home, ".copilot", "mcp-config.json")); !os.IsNotExist(err) {
+		t.Fatalf("global MCP config was written: %v", err)
+	}
+
+	cleanup()
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("session MCP config survived cleanup: %v", err)
+	}
 }
 
-func TestEnsureCopilotMCPConfigPreservesExistingServers(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	configPath := copilotMCPConfigPath(home)
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
+func TestBuildCopilotSessionArgsUsesAdditionalMCPConfigFile(t *testing.T) {
+	args := buildCopilotSessionArgs([]string{"--model", "gpt-5"}, `C:\safe\mcp.json`)
+	joined := strings.Join(args, "\x00")
+	if !strings.Contains(joined, `--additional-mcp-config=@C:\safe\mcp.json`) {
+		t.Fatalf("args = %#v, want session-scoped MCP config flag", args)
 	}
-	existing := `{"mcpServers":{"existing":{"type":"local","command":"node","args":["server.js"],"tools":["*"]}},"notes":{"keep":true}}`
-	if err := os.WriteFile(configPath, []byte(existing), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
+	if strings.Contains(joined, "agent-token") {
+		t.Fatalf("args leaked MCP token: %#v", args)
 	}
+}
 
-	cfg := core.MCPConfigFromAgentToken("dirextalk-d1", "https://d1.dirextalk.ai/mcp", "agent-token", "")
-	if err := ensureCopilotMCPConfig(cfg); err != nil {
-		t.Fatalf("ensureCopilotMCPConfig: %v", err)
-	}
+func TestCopilotMCPConfigCleanupOnNormalExit(t *testing.T) {
+	testutil.IsolatedHome(t)
+	tempRoot := t.TempDir()
+	t.Setenv("TMP", tempRoot)
+	t.Setenv("TEMP", tempRoot)
+	t.Setenv("TMPDIR", tempRoot)
+	t.Setenv("CC_MOCK_COPILOT_MODE", "session")
 
-	data, err := os.ReadFile(configPath)
+	bin, err := os.Executable()
 	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
+		t.Fatalf("Executable: %v", err)
 	}
-	var parsed map[string]any
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
+	cfg := core.MCPConfigFromAgentToken("dirextalk-d1", "https://d1.example/mcp", "agent-token", "")
+	session, err := newCopilotSession(context.Background(), t.TempDir(), bin, nil, "", "default", "", nil, nil, cfg)
+	if err != nil {
+		t.Fatalf("newCopilotSession: %v", err)
 	}
-	if _, ok := parsed["notes"].(map[string]any); !ok {
-		t.Fatalf("existing top-level config not preserved: %#v", parsed)
+
+	matches, err := filepath.Glob(filepath.Join(tempRoot, "dirextalk-copilot-mcp-*", "mcp-config.json"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("temporary MCP configs = %#v, err = %v", matches, err)
 	}
-	servers, ok := parsed["mcpServers"].(map[string]any)
-	if !ok {
-		t.Fatalf("mcpServers type = %T", parsed["mcpServers"])
+	if err := session.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
-	if _, ok := servers["existing"]; !ok {
-		t.Fatalf("existing server not preserved: %#v", servers)
+	if _, err := os.Stat(matches[0]); !os.IsNotExist(err) {
+		t.Fatalf("temporary MCP config survived normal exit: %v", err)
 	}
-	if _, ok := servers["dirextalk-d1"]; !ok {
-		t.Fatalf("dirextalk server missing: %#v", servers)
+}
+
+func TestCopilotMCPConfigCleanupWhenProcessStartFails(t *testing.T) {
+	testutil.IsolatedHome(t)
+	tempRoot := t.TempDir()
+	t.Setenv("TMP", tempRoot)
+	t.Setenv("TEMP", tempRoot)
+	t.Setenv("TMPDIR", tempRoot)
+
+	cfg := core.MCPConfigFromAgentToken("dirextalk-d1", "https://d1.example/mcp", "agent-token", "")
+	_, err := newCopilotSession(context.Background(), t.TempDir(), filepath.Join(tempRoot, "missing-copilot"), nil, "", "default", "", nil, nil, cfg)
+	if err == nil {
+		t.Fatal("newCopilotSession succeeded with a missing binary")
+	}
+	matches, globErr := filepath.Glob(filepath.Join(tempRoot, "dirextalk-copilot-mcp-*"))
+	if globErr != nil || len(matches) != 0 {
+		t.Fatalf("temporary MCP directories survived start failure: %#v, err = %v", matches, globErr)
 	}
 }
 

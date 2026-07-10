@@ -14,7 +14,7 @@ import (
 )
 
 func init() {
-	core.RegisterAgent("acp", New)
+	core.RegisterAgent("acp", New, core.MCPBackendCapability{Kind: core.MCPCapabilitySession, Reason: "ACP session/new after HTTP capability negotiation"})
 }
 
 // Agent runs an ACP (Agent Client Protocol) agent subprocess over stdio JSON-RPC.

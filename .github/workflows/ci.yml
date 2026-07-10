@@ -9,6 +9,133 @@ on:
     types: [published]
 
 jobs:
+  mcp-contract:
+    name: MCP contract (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Reject tracked CRLF text
+        shell: pwsh
+        run: ./scripts/Test-TrackedTextLF.ps1
+
+      - name: Run MCP contract tests without touching the runner home
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $runnerTemp = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP)
+          $sentinelHome = [System.IO.Path]::GetFullPath((Join-Path $runnerTemp 'dirextalk-mcp-sentinel-home'))
+          $runtimeState = [System.IO.Path]::GetFullPath((Join-Path $runnerTemp 'dirextalk-mcp-runtime-state'))
+          $safePrefix = $runnerTemp.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+          foreach ($target in @($sentinelHome, $runtimeState)) {
+            if (-not $target.StartsWith($safePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+              throw "Unsafe CI cleanup target outside RUNNER_TEMP: $target"
+            }
+          }
+          ./scripts/Assert-SafeSentinelPath.ps1 -SentinelHome $sentinelHome -TempRoot $runnerTemp | Out-Null
+          ./scripts/Assert-SafeSentinelPath.ps1 -SentinelHome $runtimeState -TempRoot $runnerTemp | Out-Null
+          Remove-Item -LiteralPath $sentinelHome -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $runtimeState -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $sentinelHome | Out-Null
+          New-Item -ItemType Directory -Force -Path $runtimeState | Out-Null
+
+          $env:HOME = $sentinelHome
+          $env:USERPROFILE = $sentinelHome
+          if ($IsWindows) {
+            $homeDriveRoot = [System.IO.Path]::GetPathRoot($sentinelHome)
+            $env:HOMEDRIVE = $homeDriveRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+            $env:HOMEPATH = $sentinelHome.Substring($env:HOMEDRIVE.Length)
+          } else {
+            $env:HOMEDRIVE = $sentinelHome
+            $env:HOMEPATH = $sentinelHome
+          }
+          $env:APPDATA = Join-Path $runtimeState 'AppData/Roaming'
+          $env:LOCALAPPDATA = Join-Path $runtimeState 'AppData/Local'
+          $env:XDG_CONFIG_HOME = Join-Path $sentinelHome '.config'
+          $env:XDG_DATA_HOME = Join-Path $sentinelHome '.local/share'
+          $env:DIREXTALK_HOME = Join-Path $sentinelHome '.dirextalk'
+          $env:CODEX_HOME = Join-Path $sentinelHome '.codex'
+          $env:CLAUDE_CONFIG_DIR = Join-Path $sentinelHome '.claude'
+          $env:PI_CODING_AGENT_DIR = Join-Path $sentinelHome '.pi/agent'
+          $env:GEMINI_CLI_SYSTEM_SETTINGS_PATH = Join-Path $sentinelHome '.gemini/system-settings.json'
+          $env:CC_CONFIG_PATH = Join-Path $sentinelHome '.cc-connect/config.toml'
+          $env:CC_DATA_DIR = Join-Path $sentinelHome '.cc-connect'
+          $env:TMP = Join-Path $runtimeState 'tmp'
+          $env:TEMP = $env:TMP
+          $env:TMPDIR = $env:TMP
+          New-Item -ItemType Directory -Force -Path $env:TMP | Out-Null
+          $env:GOCACHE = Join-Path $env:RUNNER_TEMP 'dirextalk-mcp-go-cache'
+          $env:GOTELEMETRY = 'off'
+          $env:POWERSHELL_TELEMETRY_OPTOUT = '1'
+
+          $seedFiles = @(
+            '.copilot/mcp-config.json',
+            '.gemini/settings.json',
+            '.gemini/system-settings.json',
+            '.gemini/config/mcp_config.json',
+            '.gemini/antigravity/mcp_config.json',
+            '.cursor/mcp.json',
+            '.iflow/settings.json',
+            '.config/opencode/opencode.json',
+            '.pi/agent/mcp.json'
+          )
+          foreach ($relativePath in $seedFiles) {
+            $path = Join-Path $sentinelHome $relativePath
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
+            [System.IO.File]::WriteAllText($path, '{"sentinel":true}', [System.Text.UTF8Encoding]::new($false))
+          }
+
+          $protectedRoots = @(
+            '.copilot', '.gemini', '.cursor', '.iflow', '.config/opencode',
+            '.pi', '.codex', '.claude', '.dirextalk', '.cc-connect'
+          )
+          function Get-SentinelSnapshot {
+            foreach ($relativeRoot in $protectedRoots) {
+              $root = Join-Path $sentinelHome $relativeRoot
+              if (Test-Path -LiteralPath $root) {
+                Get-ChildItem -LiteralPath $root -Recurse -File | ForEach-Object {
+                  $relative = [System.IO.Path]::GetRelativePath($sentinelHome, $_.FullName)
+                  "$relative`t$((Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash)"
+                }
+              }
+            }
+          }
+
+          $before = @(Get-SentinelSnapshot | Sort-Object)
+          $packages = @(
+            './core', './config', './internal/testutil', './internal/securetemp',
+            './agent/acp', './agent/antigravity', './agent/claudecode',
+            './agent/codex', './agent/copilot', './agent/cursor',
+            './agent/gemini', './agent/iflow', './agent/kimi',
+            './agent/opencode', './agent/pi', './agent/qoder',
+            './agent/reasonix', './agent/tmux',
+            './tests/mcp_contract', './tests/line_endings', './tests/sentinel_guard'
+          )
+          & go test @packages -run 'MCP|Capability|SecureTemp|ACL|TrackedTextLF|IsolatedHome|SafeSentinel' -count=1
+          $testExit = $LASTEXITCODE
+          $after = @(Get-SentinelSnapshot | Sort-Object)
+
+          if (Compare-Object -ReferenceObject $before -DifferenceObject $after) {
+            throw 'MCP contract tests modified the sentinel home/config tree.'
+          }
+          if ($testExit -ne 0) {
+            exit $testExit
+          }
+
   lint:
     runs-on: ubuntu-latest
     steps:

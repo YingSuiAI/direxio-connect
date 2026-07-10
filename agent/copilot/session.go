@@ -17,24 +17,26 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/internal/securetemp"
 )
 
 // copilotSession manages a long-running Copilot CLI process using
 // JSON-RPC 2.0 over Content-Length framed stdio.
 type copilotSession struct {
-	cmd       *exec.Cmd
-	rpc       *rpcClient
-	reader    *lspReader
-	events    chan core.Event
-	sessionID atomic.Value // stores string - Copilot session ID
-	mode      string       // permission mode
-	model     string
-	provider  *copilotWireProviderConfig
-	workDir   string
-	ctx       context.Context
-	cancel    context.CancelFunc
-	done      chan struct{}
-	alive     atomic.Bool
+	cmd        *exec.Cmd
+	rpc        *rpcClient
+	reader     *lspReader
+	events     chan core.Event
+	sessionID  atomic.Value // stores string - Copilot session ID
+	mode       string       // permission mode
+	model      string
+	provider   *copilotWireProviderConfig
+	workDir    string
+	ctx        context.Context
+	cancel     context.CancelFunc
+	done       chan struct{}
+	alive      atomic.Bool
+	mcpCleanup func()
 
 	// autoApprove is set when mode == "bypassPermissions"
 	autoApprove atomic.Bool
@@ -80,10 +82,22 @@ type copilotPermissionResult struct {
 	Rules []any  `json:"rules,omitempty"`
 }
 
-func newCopilotSession(ctx context.Context, workDir, cliBin string, extraArgs []string, model, mode, resumeSessionID string, extraEnv []string, provider *copilotWireProviderConfig) (*copilotSession, error) {
+func newCopilotSession(ctx context.Context, workDir, cliBin string, extraArgs []string, model, mode, resumeSessionID string, extraEnv []string, provider *copilotWireProviderConfig, mcpConfig core.MCPConfig) (*copilotSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
-	args := append(append([]string{}, extraArgs...), "--headless", "--stdio", "--no-auto-update")
+	mcpConfigPath, cleanupMCP, err := createCopilotMCPConfigFile("", mcpConfig)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("copilotSession: configure MCP: %w", err)
+	}
+	cleanupOnFailure := true
+	defer func() {
+		if cleanupOnFailure {
+			cleanupMCP()
+		}
+	}()
+
+	args := buildCopilotSessionArgs(extraArgs, mcpConfigPath)
 
 	slog.Debug("copilotSession: starting", "bin", cliBin, "args", args, "dir", workDir)
 
@@ -129,6 +143,7 @@ func newCopilotSession(ctx context.Context, workDir, cliBin string, extraArgs []
 		ctx:                sessionCtx,
 		cancel:             cancel,
 		done:               make(chan struct{}),
+		mcpCleanup:         cleanupMCP,
 		pendingPermissions: make(map[string]json.RawMessage),
 		eventPermissions:   make(map[string]struct{}),
 	}
@@ -140,6 +155,7 @@ func newCopilotSession(ctx context.Context, workDir, cliBin string, extraArgs []
 
 	// Start reading loop
 	go cs.readLoop(&stderrBuf)
+	cleanupOnFailure = false
 
 	// Perform handshake: ping then create/resume session
 	if err := cs.handshake(resumeSessionID); err != nil {
@@ -150,81 +166,44 @@ func newCopilotSession(ctx context.Context, workDir, cliBin string, extraArgs []
 	return cs, nil
 }
 
-func ensureCopilotMCPConfig(cfg core.MCPConfig) error {
+func buildCopilotSessionArgs(extraArgs []string, mcpConfigPath string) []string {
+	args := append([]string{}, extraArgs...)
+	if mcpConfigPath != "" {
+		args = append(args, "--additional-mcp-config=@"+mcpConfigPath)
+	}
+	return append(args, "--headless", "--stdio", "--no-auto-update")
+}
+
+func createCopilotMCPConfigFile(tempRoot string, cfg core.MCPConfig) (string, func(), error) {
 	if !cfg.Enabled() {
-		return nil
-	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("cannot determine home dir: %w", err)
-	}
-	return writeCopilotMCPConfig(copilotMCPConfigPath(homeDir), cfg)
-}
-
-func copilotMCPConfigPath(homeDir string) string {
-	return filepath.Join(homeDir, ".copilot", "mcp-config.json")
-}
-
-func writeCopilotMCPConfig(path string, cfg core.MCPConfig) error {
-	doc := map[string]any{}
-	if data, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(data)) > 0 {
-		if err := json.Unmarshal(data, &doc); err != nil {
-			return fmt.Errorf("read Copilot MCP config %s: %w", path, err)
-		}
-	} else if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read Copilot MCP config %s: %w", path, err)
+		return "", func() {}, nil
 	}
 
-	servers, _ := doc["mcpServers"].(map[string]any)
-	if servers == nil {
-		servers = map[string]any{}
-	}
 	headers := map[string]string{
 		"Authorization": cfg.Authorization,
 	}
 	if cfg.NodeID != "" {
 		headers["DIREXTALK-Agent-Node-Id"] = cfg.NodeID
 	}
-	servers[cfg.ServerName] = map[string]any{
-		"type":    "http",
-		"url":     cfg.URL,
-		"headers": headers,
-		"tools":   []string{"*"},
+	doc := map[string]any{
+		"mcpServers": map[string]any{
+			cfg.ServerName: map[string]any{
+				"type":    "http",
+				"url":     cfg.URL,
+				"headers": headers,
+				"tools":   []string{"*"},
+			},
+		},
 	}
-	doc["mcpServers"] = servers
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("create Copilot MCP config dir %s: %w", filepath.Dir(path), err)
-	}
-	var out bytes.Buffer
-	enc := json.NewEncoder(&out)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(doc); err != nil {
-		return fmt.Errorf("encode Copilot MCP config %s: %w", path, err)
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".mcp-config-*.json")
+	out, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
-		return fmt.Errorf("create temp Copilot MCP config %s: %w", path, err)
+		return "", nil, fmt.Errorf("encode Copilot MCP config: %w", err)
 	}
-	tmpPath := tmp.Name()
-	defer func() {
-		_ = os.Remove(tmpPath)
-	}()
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("chmod temp Copilot MCP config %s: %w", tmpPath, err)
+	path, cleanup, err := securetemp.WriteFile(tempRoot, "dirextalk-copilot-mcp-", "mcp-config.json", append(out, '\n'))
+	if err != nil {
+		return "", nil, fmt.Errorf("write temporary Copilot MCP config: %w", err)
 	}
-	if _, err := tmp.Write(out.Bytes()); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write temp Copilot MCP config %s: %w", tmpPath, err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temp Copilot MCP config %s: %w", tmpPath, err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("replace Copilot MCP config %s: %w", path, err)
-	}
-	return nil
+	return path, cleanup, nil
 }
 
 func (cs *copilotSession) handshake(resumeSessionID string) error {
@@ -320,7 +299,11 @@ func (cs *copilotSession) readLoop(stderrBuf *bytes.Buffer) {
 		cs.rpc.cancelAll(fmt.Errorf("process exited"))
 
 		// Wait for process exit
-		if err := cs.cmd.Wait(); err != nil {
+		err := cs.cmd.Wait()
+		if cs.mcpCleanup != nil {
+			cs.mcpCleanup()
+		}
+		if err != nil {
 			stderrMsg := strings.TrimSpace(stderrBuf.String())
 			if stderrMsg != "" {
 				slog.Error("copilotSession: process failed", "error", err, "stderr", stderrMsg)

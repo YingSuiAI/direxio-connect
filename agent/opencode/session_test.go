@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/internal/testutil"
 )
 
 // TestOpencodeSessionEntry_Unmarshal verifies that OpenCode's
@@ -72,19 +73,14 @@ func TestNewOpencodeSession_ContinueSessionTreatedAsFresh(t *testing.T) {
 	}
 }
 
-func TestEnsureOpencodeMCPConfigWritesGlobalConfig(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+func TestOpencodeMCPConfigUsesProcessEnvironmentWithoutGlobalWrite(t *testing.T) {
+	home := testutil.IsolatedHome(t)
 
 	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
-	if err := ensureOpencodeMCPConfig(cfg); err != nil {
-		t.Fatalf("ensureOpencodeMCPConfig: %v", err)
-	}
-
-	configPath := opencodeMCPConfigPath(home)
-	data, err := os.ReadFile(configPath)
+	existing := `{"model":"anthropic/claude-sonnet","mcp":{"existing":{"type":"local","command":["node","server.js"]}}}`
+	content, err := opencodeMCPConfigContent(existing, cfg)
 	if err != nil {
-		t.Fatalf("ReadFile(%s): %v", configPath, err)
+		t.Fatalf("opencodeMCPConfigContent: %v", err)
 	}
 
 	var parsed struct {
@@ -97,7 +93,7 @@ func TestEnsureOpencodeMCPConfigWritesGlobalConfig(t *testing.T) {
 			Headers map[string]string `json:"headers"`
 		} `json:"mcp"`
 	}
-	if err := json.Unmarshal(data, &parsed); err != nil {
+	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 	if parsed.Schema != "https://opencode.ai/config.json" {
@@ -122,46 +118,41 @@ func TestEnsureOpencodeMCPConfigWritesGlobalConfig(t *testing.T) {
 	if server.Headers["DIREXTALK-Agent-Node-Id"] != "node-1" {
 		t.Fatalf("node header = %q", server.Headers["DIREXTALK-Agent-Node-Id"])
 	}
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+		t.Fatalf("Unmarshal map: %v", err)
+	}
+	if raw["model"] != "anthropic/claude-sonnet" {
+		t.Fatalf("existing process config not preserved: %#v", raw)
+	}
+	if _, ok := raw["mcp"].(map[string]any)["existing"]; !ok {
+		t.Fatalf("existing MCP server not preserved: %#v", raw["mcp"])
+	}
+
+	env, err := buildOpencodeSessionEnv(
+		[]string{"PATH=/bin", "OPENCODE_CONFIG_CONTENT=" + existing},
+		[]string{"OPENAI_API_KEY=key"},
+		cfg,
+	)
+	if err != nil {
+		t.Fatalf("buildOpencodeSessionEnv: %v", err)
+	}
+	if got := testEnvValue(env, "OPENCODE_CONFIG_CONTENT"); got != content {
+		t.Fatalf("OPENCODE_CONFIG_CONTENT = %q, want generated MCP config", got)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "opencode.json")); !os.IsNotExist(err) {
+		t.Fatalf("global OpenCode config was written: %v", err)
+	}
 }
 
-func TestEnsureOpencodeMCPConfigPreservesExistingConfig(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	configPath := opencodeMCPConfigPath(home)
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
+func testEnvValue(env []string, key string) string {
+	prefix := key + "="
+	for i := len(env) - 1; i >= 0; i-- {
+		if strings.HasPrefix(env[i], prefix) {
+			return strings.TrimPrefix(env[i], prefix)
+		}
 	}
-	existing := `{"model":"anthropic/claude-sonnet-4-5","mcp":{"existing":{"type":"local","command":["node","server.js"]}}}`
-	if err := os.WriteFile(configPath, []byte(existing), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	cfg := core.MCPConfigFromAgentToken("dirextalk-d1", "https://d1.dirextalk.ai/mcp", "agent-token", "")
-	if err := ensureOpencodeMCPConfig(cfg); err != nil {
-		t.Fatalf("ensureOpencodeMCPConfig: %v", err)
-	}
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	var parsed map[string]any
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-	if parsed["model"] != "anthropic/claude-sonnet-4-5" {
-		t.Fatalf("existing model not preserved: %#v", parsed)
-	}
-	mcp, ok := parsed["mcp"].(map[string]any)
-	if !ok {
-		t.Fatalf("mcp type = %T", parsed["mcp"])
-	}
-	if _, ok := mcp["existing"]; !ok {
-		t.Fatalf("existing MCP not preserved: %#v", mcp)
-	}
-	if _, ok := mcp["dirextalk-d1"]; !ok {
-		t.Fatalf("dirextalk MCP missing: %#v", mcp)
-	}
+	return ""
 }
 
 func TestOpencodeSessionStageImages(t *testing.T) {

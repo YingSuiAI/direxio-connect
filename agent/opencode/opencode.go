@@ -20,7 +20,7 @@ import (
 )
 
 func init() {
-	core.RegisterAgent("opencode", New)
+	core.RegisterAgent("opencode", New, core.MCPBackendCapability{Kind: core.MCPCapabilitySession, Reason: "per-process OPENCODE_CONFIG_CONTENT override"})
 }
 
 // Agent drives the OpenCode CLI in headless mode using `opencode run --format json`.

@@ -19,7 +19,7 @@ import (
 )
 
 func init() {
-	core.RegisterAgent("iflow", New)
+	core.RegisterAgent("iflow", New, core.MCPBackendCapability{Kind: core.MCPCapabilityHostManaged, Reason: "iFlow exposes only user-managed MCP settings"})
 }
 
 // Agent drives iFlow CLI one turn at a time using interactive `iflow -i`
@@ -37,7 +37,6 @@ type Agent struct {
 	cmd            string
 	cliExtraArgs   []string // extra args from cmd after the binary name
 	configEnv      []string // env vars from [projects.agent.options.env]
-	mcpConfig      core.MCPConfig
 	toolTimeoutSec int
 	providers      []core.ProviderConfig
 	activeIdx      int
@@ -54,6 +53,9 @@ func New(opts map[string]any) (core.Agent, error) {
 	mode, _ := opts["mode"].(string)
 	mode = normalizeMode(mode)
 	cmd, extraArgs := core.ParseCmdOpts(opts, "iflow")
+	if core.ParseMCPConfig(opts).Enabled() {
+		return nil, fmt.Errorf("iflow: MCP is host-managed; configure iFlow's user settings outside dirextalk-connect or choose a session-capable backend")
+	}
 
 	if _, err := exec.LookPath(cmd); err != nil {
 		return nil, fmt.Errorf("iflow: %q CLI not found in PATH, install with: npm i -g @iflow-ai/iflow-cli", cmd)
@@ -76,7 +78,6 @@ func New(opts map[string]any) (core.Agent, error) {
 		cmd:            cmd,
 		cliExtraArgs:   extraArgs,
 		configEnv:      core.ParseConfigEnv(opts),
-		mcpConfig:      core.ParseMCPConfig(opts),
 		toolTimeoutSec: toolTimeoutSec,
 		activeIdx:      -1,
 	}, nil
@@ -153,7 +154,6 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	cmd := a.cmd
 	extraArgs := append([]string{}, a.cliExtraArgs...)
 	workDir := a.workDir
-	mcpConfig := a.mcpConfig
 	toolTimeoutSec := a.toolTimeoutSec
 	extraEnv := append([]string(nil), a.configEnv...)
 	extraEnv = append(extraEnv, a.providerEnvLocked()...)
@@ -165,7 +165,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	}
 	a.mu.Unlock()
 
-	return newIFlowSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, mcpConfig, toolTimeoutSec)
+	return newIFlowSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, toolTimeoutSec)
 }
 
 func (a *Agent) ListSessions(_ context.Context) ([]core.AgentSessionInfo, error) {

@@ -157,8 +157,9 @@ func (cs *codexSession) Send(prompt string, images []core.ImageAttachment, files
 	cmd := exec.CommandContext(cs.ctx, bin, args...)
 	cmd.Dir = cs.workDir
 	prepareCmdForKill(cmd)
-	if len(cs.extraEnv) > 0 {
-		cmd.Env = core.MergeEnv(os.Environ(), cs.extraEnv)
+	processEnv := appendCodexMCPProcessEnv(cs.extraEnv, cs.mcpConfig)
+	if len(processEnv) > 0 {
+		cmd.Env = core.MergeEnv(os.Environ(), processEnv)
 	}
 	cmd.Stdin = strings.NewReader(prompt)
 

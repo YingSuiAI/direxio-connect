@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -167,13 +168,10 @@ func TestTruncate(t *testing.T) {
 
 func TestWriteKimiMCPConfigFile(t *testing.T) {
 	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
-	path, err := writeKimiMCPConfigFile(cfg)
+	root := t.TempDir()
+	path, cleanup, err := writeKimiMCPConfigFile(root, cfg)
 	require.NoError(t, err)
-	defer os.Remove(path)
-
-	info, err := os.Stat(path)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	defer cleanup()
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -190,6 +188,74 @@ func TestWriteKimiMCPConfigFile(t *testing.T) {
 	assert.Equal(t, "https://d1.dirextalk.ai/mcp", server.URL)
 	assert.Equal(t, "Bearer agent-token", server.Headers["Authorization"])
 	assert.Equal(t, "node-1", server.Headers["DIREXTALK-Agent-Node-Id"])
+}
+
+func TestKimiMCPConfigCleanupAfterNormalExit(t *testing.T) {
+	root := isolateKimiTempRoot(t)
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	ks, err := newKimiSession(
+		context.Background(),
+		os.Args[0],
+		[]string{"-test.run=TestKimiHelperProcess", "--"},
+		t.TempDir(),
+		"",
+		"default",
+		"",
+		[]string{"KIMI_HELPER_PROCESS=1"},
+		cfg,
+		0,
+	)
+	require.NoError(t, err)
+	defer ks.Close()
+
+	require.NoError(t, ks.Send("hello", nil, nil))
+	ks.wg.Wait()
+	assertNoKimiMCPTempDirs(t, root)
+}
+
+func TestKimiMCPConfigCleanupAfterStartFailure(t *testing.T) {
+	root := isolateKimiTempRoot(t)
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	ks, err := newKimiSession(
+		context.Background(),
+		filepath.Join(t.TempDir(), "missing-kimi"),
+		nil,
+		t.TempDir(),
+		"",
+		"default",
+		"",
+		nil,
+		cfg,
+		0,
+	)
+	require.NoError(t, err)
+	defer ks.Close()
+
+	require.Error(t, ks.Send("hello", nil, nil))
+	assertNoKimiMCPTempDirs(t, root)
+}
+
+func TestKimiHelperProcess(t *testing.T) {
+	if os.Getenv("KIMI_HELPER_PROCESS") != "1" {
+		return
+	}
+	os.Exit(0)
+}
+
+func isolateKimiTempRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("TEMP", root)
+	t.Setenv("TMP", root)
+	t.Setenv("TMPDIR", root)
+	return root
+}
+
+func assertNoKimiMCPTempDirs(t *testing.T, root string) {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(root, "dirextalk-kimi-mcp-*"))
+	require.NoError(t, err)
+	assert.Empty(t, matches, "temporary MCP directories survived cleanup")
 }
 
 func TestBuildKimiArgsIncludesMCPConfigWithoutToken(t *testing.T) {

@@ -73,7 +73,10 @@ web/tsconfig.tsbuildinfo
 # Testing & temporary files
 # ============================================================================
 test/
-scripts/
+scripts/*
+!scripts/release.sh
+!scripts/Assert-SafeSentinelPath.ps1
+!scripts/Test-TrackedTextLF.ps1
 tmp/
 temp/
 *.tmp

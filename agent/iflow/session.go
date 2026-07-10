@@ -47,7 +47,6 @@ type iflowSession struct {
 	mode           string
 	toolTimeoutSec int
 	extraEnv       []string
-	mcpConfig      core.MCPConfig
 	events         chan core.Event
 	sessionID      atomic.Value // stores string
 	sentOnce       atomic.Bool
@@ -94,7 +93,7 @@ type iflowToolResult struct {
 	Output string
 }
 
-func newIFlowSession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string, mcpConfig core.MCPConfig, toolTimeoutSec int) (*iflowSession, error) {
+func newIFlowSession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string, toolTimeoutSec int) (*iflowSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	s := &iflowSession{
@@ -105,7 +104,6 @@ func newIFlowSession(ctx context.Context, cmd string, extraArgs []string, workDi
 		mode:           mode,
 		toolTimeoutSec: toolTimeoutSec,
 		extraEnv:       extraEnv,
-		mcpConfig:      mcpConfig,
 		events:         make(chan core.Event, 64),
 		ctx:            sessionCtx,
 		cancel:         cancel,
@@ -161,11 +159,6 @@ func (s *iflowSession) Send(prompt string, images []core.ImageAttachment, files 
 	}
 	turn.sessionDir = sessionDir
 
-	if err := ensureIFlowMCPConfig(s.mcpConfig); err != nil {
-		s.turnActive.Store(false)
-		return fmt.Errorf("iflowSession: configure MCP: %w", err)
-	}
-
 	args := append([]string{}, s.extraArgs...)
 	if s.model != "" {
 		args = append(args, "-m", s.model)
@@ -212,123 +205,6 @@ func (s *iflowSession) Send(prompt string, images []core.ImageAttachment, files 
 	s.wg.Add(1)
 	go s.readLoop(turn, cmd, ptmx)
 	return nil
-}
-
-func ensureIFlowMCPConfig(cfg core.MCPConfig) error {
-	if !cfg.Enabled() {
-		return nil
-	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("cannot determine home dir: %w", err)
-	}
-	return writeIFlowMCPSettings(iflowMCPSettingsPath(homeDir), cfg)
-}
-
-func iflowMCPSettingsPath(homeDir string) string {
-	return filepath.Join(homeDir, ".iflow", "settings.json")
-}
-
-func writeIFlowMCPSettings(path string, cfg core.MCPConfig) error {
-	doc := map[string]any{}
-	if data, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(data)) > 0 {
-		if err := json.Unmarshal(data, &doc); err != nil {
-			return fmt.Errorf("read iFlow settings %s: %w", path, err)
-		}
-	} else if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read iFlow settings %s: %w", path, err)
-	}
-
-	servers, _ := doc["mcpServers"].(map[string]any)
-	if servers == nil {
-		servers = map[string]any{}
-	}
-	headers := map[string]string{
-		"Authorization": cfg.Authorization,
-	}
-	if cfg.NodeID != "" {
-		headers["DIREXTALK-Agent-Node-Id"] = cfg.NodeID
-	}
-	servers[cfg.ServerName] = map[string]any{
-		"type":    "http",
-		"httpUrl": cfg.URL,
-		"headers": headers,
-	}
-	doc["mcpServers"] = servers
-	allowIFlowMCPServer(doc, cfg.ServerName)
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("create iFlow settings dir %s: %w", filepath.Dir(path), err)
-	}
-	var out bytes.Buffer
-	enc := json.NewEncoder(&out)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(doc); err != nil {
-		return fmt.Errorf("encode iFlow settings %s: %w", path, err)
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".settings-*.json")
-	if err != nil {
-		return fmt.Errorf("create temp iFlow settings %s: %w", path, err)
-	}
-	tmpPath := tmp.Name()
-	defer func() {
-		_ = os.Remove(tmpPath)
-	}()
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("chmod temp iFlow settings %s: %w", tmpPath, err)
-	}
-	if _, err := tmp.Write(out.Bytes()); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write temp iFlow settings %s: %w", tmpPath, err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temp iFlow settings %s: %w", tmpPath, err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("replace iFlow settings %s: %w", path, err)
-	}
-	return nil
-}
-
-func allowIFlowMCPServer(doc map[string]any, serverName string) {
-	if allowed, ok := doc["allowMCPServers"].([]any); ok {
-		doc["allowMCPServers"] = appendIFlowStringIfMissing(allowed, serverName)
-	}
-	if excluded, ok := doc["excludeMCPServers"].([]any); ok {
-		doc["excludeMCPServers"] = removeIFlowString(excluded, serverName)
-	}
-}
-
-func appendIFlowStringIfMissing(values []any, want string) []any {
-	if iflowJSONArrayContainsString(values, want) {
-		return values
-	}
-	return append(values, want)
-}
-
-func removeIFlowString(values []any, remove string) []any {
-	result := values[:0]
-	for _, value := range values {
-		if s, ok := value.(string); ok && s == remove {
-			continue
-		}
-		result = append(result, value)
-	}
-	return result
-}
-
-func iflowJSONArrayContainsString(raw any, want string) bool {
-	values, ok := raw.([]any)
-	if !ok {
-		return false
-	}
-	for _, value := range values {
-		if s, ok := value.(string); ok && s == want {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *iflowSession) readLoop(turn *iflowTurn, cmd *exec.Cmd, ptmx *os.File) {

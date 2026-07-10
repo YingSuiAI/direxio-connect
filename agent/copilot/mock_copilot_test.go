@@ -20,6 +20,9 @@ func TestMain(m *testing.M) {
 	case "delete_session":
 		runMockCopilot(handleDeleteSession)
 		os.Exit(0)
+	case "session":
+		runMockCopilot(handleSession)
+		os.Exit(0)
 	default:
 		os.Exit(m.Run())
 	}
@@ -112,6 +115,17 @@ func handleDeleteSession(method string, id json.RawMessage, _ json.RawMessage, w
 		writeResponse(w, id, map[string]any{"pong": true})
 	case "session.delete":
 		writeResponse(w, id, map[string]any{"success": true})
+	default:
+		writeError(w, id, -32601, fmt.Sprintf("method not found: %s", method))
+	}
+}
+
+func handleSession(method string, id json.RawMessage, _ json.RawMessage, w *lspWriter) {
+	switch method {
+	case "ping":
+		writeResponse(w, id, map[string]any{"pong": true})
+	case "session.create":
+		writeResponse(w, id, map[string]any{"sessionId": "session-cleanup-test"})
 	default:
 		writeError(w, id, -32601, fmt.Sprintf("method not found: %s", method))
 	}

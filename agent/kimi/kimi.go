@@ -19,7 +19,7 @@ import (
 )
 
 func init() {
-	core.RegisterAgent("kimi", New)
+	core.RegisterAgent("kimi", New, core.MCPBackendCapability{Kind: core.MCPCapabilitySession, Reason: "per-session --mcp-config-file temporary file"})
 }
 
 // Agent drives Kimi Code CLI using --print --output-format stream-json.

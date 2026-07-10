@@ -1,0 +1,21 @@
+* text=auto eol=lf
+
+*.bmp -text
+*.db -text
+*.dll -text
+*.exe -text
+*.gif -text
+*.gz -text
+*.ico -text
+*.jpeg -text
+*.jpg -text
+*.otf -text
+*.pdf -text
+*.png -text
+*.tar -text
+*.ttf -text
+*.wasm -text
+*.webp -text
+*.woff -text
+*.woff2 -text
+*.zip -text

@@ -1,0 +1,11 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+
+[*.{bmp,db,dll,exe,gif,gz,ico,jpeg,jpg,otf,pdf,png,tar,ttf,wasm,webp,woff,woff2,zip}]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset

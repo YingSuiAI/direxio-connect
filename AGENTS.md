@@ -69,6 +69,8 @@ auto_verify = false
 ## Agent Backend Rules
 
 - Preserve explicit command configuration. If `[projects.agent.options].cmd` and extra args are configured, the backend must use them instead of hardcoding a binary name.
+- Remote MCP must be fail-closed. Every registered backend needs an explicit `session`, `project`, `host-managed`, `conditional`, or `unsupported` capability; do not add generic config-file or environment fallbacks for native backends.
+- Prefer official session/process injection. Project-scoped MCP writers must preserve existing entries, serialize shared writes, use restrictive permissions where supported, and warn that bearer credentials persist in the workspace.
 - Keep app-server and stdio paths platform-neutral. Windows users must be able to run `dirextalk-connect.exe` from PowerShell without WSL-only assumptions.
 - Agent backend fixes should include focused tests in the owning backend package, for example `go test ./agent/<backend> -count=1` for the changed backend.
 - Do not silently drop streaming, card, Markdown, permission, or usage-reporting capabilities when adapting an agent backend.
@@ -100,14 +102,14 @@ npm install --prefix <temp-dir> dirextalk-connect@<version>
 go test ./tests/release_local/release_build_contract -count=1
 make build PLATFORMS_INCLUDE=matrix
 node --check npm/install.js
-npm pack --dry-run --prefix npm
+npm pack ./npm --dry-run
 gh release view v<version> --repo YingSuiAI/dirextalk-connect
 npm view dirextalk-connect@<version> version
 ```
 
 ## Development Workflow
 
-- Work on the `cc-connect` branch unless the user asks for another branch.
+- Work on the current task branch. Do not switch branches unless the user asks for it.
 - Use the shell native to the current environment. PowerShell is acceptable on Windows; Bash is acceptable on Linux, macOS, or WSL. Do not force WSL-only commands for Windows-local behavior.
 - Prefer `rg` for search.
 - Use `apply_patch` for manual source and documentation edits.
@@ -125,7 +127,7 @@ go test ./cmd/cc-connect -count=1
 go test ./tests/release_local/release_build_contract -count=1
 make build PLATFORMS_INCLUDE=matrix
 node --check npm/install.js
-npm pack --dry-run --prefix npm
+npm pack ./npm --dry-run
 git diff --check
 ```
 

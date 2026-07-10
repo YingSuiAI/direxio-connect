@@ -51,9 +51,8 @@ func TestNew_ParsesMCPConfig(t *testing.T) {
 	if len(servers) != 1 {
 		t.Fatalf("mcpServers = %#v", params["mcpServers"])
 	}
-	snakeServers, _ := params["mcp_servers"].([]any)
-	if len(snakeServers) != 1 {
-		t.Fatalf("mcp_servers = %#v", params["mcp_servers"])
+	if _, ok := params["mcp_servers"]; ok {
+		t.Fatalf("non-standard mcp_servers field present: %#v", params)
 	}
 	server := servers[0].(map[string]any)
 	if server["name"] != "dirextalk-d1" || server["url"] != "https://d1.dirextalk.ai/mcp" {
@@ -84,10 +83,6 @@ func TestNew_ParsesMCPConfig(t *testing.T) {
 	}
 	if gotHeaders["DIREXTALK-Agent-Node-Id"] != "node-1" {
 		t.Fatalf("node header = %q", gotHeaders["DIREXTALK-Agent-Node-Id"])
-	}
-	snakeServer := snakeServers[0].(map[string]any)
-	if snakeServer["name"] != server["name"] || snakeServer["url"] != server["url"] || snakeServer["type"] != server["type"] {
-		t.Fatalf("mcp_servers[0] = %#v, want same as mcpServers[0] %#v", snakeServer, server)
 	}
 }
 

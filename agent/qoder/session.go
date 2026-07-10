@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/YingSuiAI/dirextalk-connect/core"
+	"github.com/YingSuiAI/dirextalk-connect/internal/securetemp"
 )
 
 // qoderSession manages a multi-turn Qoder conversation.
@@ -95,14 +96,16 @@ func (qs *qoderSession) Send(prompt string, images []core.ImageAttachment, files
 	}
 
 	sid := qs.CurrentSessionID()
-	mcpConfigPath := ""
-	if qs.mcpConfig.Enabled() {
-		var err error
-		mcpConfigPath, err = writeQoderMCPConfigFile("", qs.mcpConfig)
-		if err != nil {
-			return fmt.Errorf("qoderSession: configure MCP: %w", err)
-		}
+	mcpConfigPath, cleanupMCP, err := writeQoderMCPConfigFile("", qs.mcpConfig)
+	if err != nil {
+		return fmt.Errorf("qoderSession: configure MCP: %w", err)
 	}
+	started := false
+	defer func() {
+		if !started {
+			cleanupMCP()
+		}
+	}()
 	args := qs.buildQoderArgs(prompt, sid, mcpConfigPath)
 
 	slog.Debug("qoderSession: launching", "resume", sid != "", "args_len", len(args))
@@ -122,14 +125,12 @@ func (qs *qoderSession) Send(prompt string, images []core.ImageAttachment, files
 	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Start(); err != nil {
-		if mcpConfigPath != "" {
-			_ = os.Remove(mcpConfigPath)
-		}
 		return fmt.Errorf("qoderSession: start: %w", err)
 	}
 
+	started = true
 	qs.wg.Add(1)
-	go qs.readLoop(cmd, stdout, &stderrBuf, mcpConfigPath)
+	go qs.readLoop(cmd, stdout, &stderrBuf, cleanupMCP)
 
 	return nil
 }
@@ -155,15 +156,9 @@ func (qs *qoderSession) buildQoderArgs(prompt, sessionID, mcpConfigPath string) 
 	return args
 }
 
-func writeQoderMCPConfigFile(dir string, cfg core.MCPConfig) (string, error) {
+func writeQoderMCPConfigFile(tempRoot string, cfg core.MCPConfig) (string, func(), error) {
 	if !cfg.Enabled() {
-		return "", nil
-	}
-	if dir == "" {
-		dir = os.TempDir()
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("create Qoder MCP config dir %s: %w", dir, err)
+		return "", func() {}, nil
 	}
 	headers := map[string]string{
 		"Authorization": cfg.Authorization,
@@ -184,37 +179,18 @@ func writeQoderMCPConfigFile(dir string, cfg core.MCPConfig) (string, error) {
 	enc := json.NewEncoder(&out)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(doc); err != nil {
-		return "", fmt.Errorf("encode Qoder MCP config: %w", err)
+		return "", nil, fmt.Errorf("encode Qoder MCP config: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, "qoder-mcp-*.json")
+	path, cleanup, err := securetemp.WriteFile(tempRoot, "dirextalk-qoder-mcp-", "mcp-config.json", out.Bytes())
 	if err != nil {
-		return "", fmt.Errorf("create Qoder MCP config: %w", err)
+		return "", nil, fmt.Errorf("write Qoder MCP config: %w", err)
 	}
-	path := tmp.Name()
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(path)
-		return "", fmt.Errorf("chmod Qoder MCP config %s: %w", path, err)
-	}
-	if _, err := tmp.Write(out.Bytes()); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(path)
-		return "", fmt.Errorf("write Qoder MCP config %s: %w", path, err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(path)
-		return "", fmt.Errorf("close Qoder MCP config %s: %w", path, err)
-	}
-	return path, nil
+	return path, cleanup, nil
 }
 
-func (qs *qoderSession) readLoop(cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer, mcpConfigPath string) {
+func (qs *qoderSession) readLoop(cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer, cleanupMCP func()) {
 	defer qs.wg.Done()
-	defer func() {
-		if mcpConfigPath != "" {
-			_ = os.Remove(mcpConfigPath)
-		}
-	}()
+	defer cleanupMCP()
 
 	var gotResult bool
 	var nonJSONLines []string

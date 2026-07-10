@@ -20,7 +20,7 @@ import (
 )
 
 func init() {
-	core.RegisterAgent("antigravity", New)
+	core.RegisterAgent("antigravity", New, core.MCPBackendCapability{Kind: core.MCPCapabilityHostManaged, Reason: "Antigravity has no verified session- or process-scoped remote HTTP MCP injection surface"})
 }
 
 // Agent drives the Antigravity CLI (agy) in headless mode.
@@ -40,7 +40,6 @@ type Agent struct {
 	providers    []core.ProviderConfig
 	activeIdx    int
 	sessionEnv   []string
-	mcpConfig    core.MCPConfig
 	mu           sync.RWMutex
 }
 
@@ -53,6 +52,9 @@ func New(opts map[string]any) (core.Agent, error) {
 	mode, _ := opts["mode"].(string)
 	mode = normalizeMode(mode)
 	cmd, extraArgs := core.ParseCmdOpts(opts, "agy")
+	if core.ParseMCPConfig(opts).Enabled() {
+		return nil, fmt.Errorf("antigravity: MCP capability is host-managed; configure MCP in the Antigravity host")
+	}
 
 	var timeoutMins int64
 	switch v := opts["timeout_mins"].(type) {
@@ -85,7 +87,6 @@ func New(opts map[string]any) (core.Agent, error) {
 		configEnv:    core.ParseConfigEnv(opts),
 		timeout:      timeout,
 		activeIdx:    -1,
-		mcpConfig:    core.ParseMCPConfig(opts),
 	}, nil
 }
 
@@ -212,7 +213,6 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	extraArgs := append([]string{}, a.cliExtraArgs...)
 	workDir := a.workDir
 	timeout := a.timeout
-	mcpConfig := a.mcpConfig
 	extraEnv := append([]string(nil), a.configEnv...)
 	extraEnv = append(extraEnv, a.providerEnvLocked()...)
 	extraEnv = append(extraEnv, a.sessionEnv...)
@@ -223,7 +223,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	}
 	a.mu.Unlock()
 
-	return newAntigravitySession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout, mcpConfig)
+	return newAntigravitySession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout)
 }
 
 func (a *Agent) ListSessions(_ context.Context) ([]core.AgentSessionInfo, error) {

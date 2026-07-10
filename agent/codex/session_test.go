@@ -116,11 +116,79 @@ func TestBuildExecArgs_IncludesMCPConfig(t *testing.T) {
 	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".url="https://d1.dirextalk.ai/mcp"`}) {
 		t.Fatalf("args missing MCP url config flag: %v", args)
 	}
-	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".headers.Authorization="Bearer fake-agent-token"`}) {
-		t.Fatalf("args missing MCP Authorization config flag: %v", args)
+	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".bearer_token_env_var="DIREXTALK_MCP_AGENT_TOKEN"`}) {
+		t.Fatalf("args missing MCP bearer token env config flag: %v", args)
 	}
-	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".headers."DIREXTALK-Agent-Node-Id"="codex-d1"`}) {
-		t.Fatalf("args missing MCP node id config flag: %v", args)
+	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".required=true`}) {
+		t.Fatalf("args missing required MCP readiness flag: %v", args)
+	}
+	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".env_http_headers={"DIREXTALK-Agent-Node-Id"="DIREXTALK_MCP_NODE_ID"}`}) {
+		t.Fatalf("args missing MCP environment-backed header config flag: %v", args)
+	}
+	joined := strings.Join(args, "\n")
+	for _, forbidden := range []string{"fake-agent-token", "Bearer fake-agent-token", "codex-d1", "Authorization=", ".http_headers="} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("args leak static MCP credential/header value %q: %v", forbidden, args)
+		}
+	}
+}
+
+func TestSend_MCPUsesEnvironmentBackedCredentials(t *testing.T) {
+	workDir := t.TempDir()
+	binDir := filepath.Join(workDir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	argsFile := filepath.Join(workDir, "args.txt")
+	envFile := filepath.Join(workDir, "mcp-env.txt")
+	script := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$@\" > \"$CODEX_ARGS_FILE\"\n" +
+		"printf '%s\\n%s\\n' \"$DIREXTALK_MCP_AGENT_TOKEN\" \"$DIREXTALK_MCP_NODE_ID\" > \"$CODEX_MCP_ENV_FILE\"\n" +
+		"printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"thread-mcp-env\"}'\n" +
+		"printf '%s\\n' '{\"type\":\"turn.completed\"}'\n"
+	powershellScript := `
+[IO.File]::WriteAllLines($env:CODEX_ARGS_FILE, (fakeCodexArgs))
+[IO.File]::WriteAllLines($env:CODEX_MCP_ENV_FILE, @($env:DIREXTALK_MCP_AGENT_TOKEN, $env:DIREXTALK_MCP_NODE_ID))
+[Console]::Out.WriteLine('{"type":"thread.started","thread_id":"thread-mcp-env"}')
+[Console]::Out.WriteLine('{"type":"turn.completed"}')
+`
+	writeFakeCodexScript(t, binDir, script, powershellScript)
+	t.Setenv("CODEX_ARGS_FILE", argsFile)
+	t.Setenv("CODEX_MCP_ENV_FILE", envFile)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cfg := core.MCPConfig{
+		ServerName:    "dirextalk-d1_dirextalk_ai",
+		URL:           "https://d1.dirextalk.ai/mcp",
+		Authorization: "Bearer fake-agent-token",
+		NodeID:        "codex-d1",
+	}
+	cs, err := newCodexSessionWithMCP(context.Background(), "codex", nil, workDir, "", "", "full-auto", "", "", []string{
+		codexMCPAgentTokenEnv + "=stale-token",
+		codexMCPNodeIDEnv + "=stale-node",
+	}, "", cfg, "", "")
+	if err != nil {
+		t.Fatalf("newCodexSessionWithMCP: %v", err)
+	}
+	defer cs.Close()
+	if err := cs.Send("hello", nil, nil); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	args := waitForArgsFile(t, argsFile)
+	joined := strings.Join(args, "\n")
+	for _, forbidden := range []string{"fake-agent-token", "Bearer fake-agent-token", "codex-d1", "Authorization="} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("exec argv leaks MCP value %q: %v", forbidden, args)
+		}
+	}
+	waitForFileContains(t, envFile, "fake-agent-token")
+	envValues, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatalf("read captured MCP env: %v", err)
+	}
+	if got := strings.Fields(string(envValues)); len(got) != 2 || got[0] != "fake-agent-token" || got[1] != "codex-d1" {
+		t.Fatalf("captured MCP env = %#v, want raw token and node id", got)
 	}
 }
 

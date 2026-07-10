@@ -187,10 +187,12 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string, mcpCon
 		return fmt.Errorf("acp: parse initialize result: %w", err)
 	}
 	listSupported := len(initOut.AgentCapabilities.SessionCapabilities.List) > 0
+	httpMCPSupported := initOut.AgentCapabilities.MCPCapabilities.HTTP
 	slog.Debug("acp: initialized",
 		"protocol", initOut.ProtocolVersion,
 		"load_session", initOut.AgentCapabilities.LoadSession,
 		"list_sessions", listSupported,
+		"http_mcp", httpMCPSupported,
 	)
 	if s.callbacks != nil {
 		s.callbacks.reportListSupported(listSupported)
@@ -203,6 +205,9 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string, mcpCon
 			return fmt.Errorf("acp: authenticate (%s): %w", authMethod, err)
 		}
 		slog.Debug("acp: authenticated", "method_id", authMethod)
+	}
+	if mcpConfig.Enabled() && !httpMCPSupported {
+		return fmt.Errorf("acp: agent does not advertise HTTP MCP capability; configure MCP in the host runtime or select an MCP-capable backend")
 	}
 
 	wantResume := resumeSessionID != "" && resumeSessionID != core.ContinueSession
@@ -250,10 +255,6 @@ func acpSessionParams(workDir string, mcpConfig core.MCPConfig) map[string]any {
 	return map[string]any{
 		"cwd":        workDir,
 		"mcpServers": servers,
-		// Hermes ACP v0.16.0 validates NewSessionRequest with a Pydantic
-		// schema that requires the snake_case field name. Keep mcpServers for
-		// older ACP adapters that accepted the earlier camelCase shape.
-		"mcp_servers": servers,
 	}
 }
 

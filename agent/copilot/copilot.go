@@ -16,7 +16,7 @@ import (
 )
 
 func init() {
-	core.RegisterAgent("copilot", New)
+	core.RegisterAgent("copilot", New, core.MCPBackendCapability{Kind: core.MCPCapabilitySession, Reason: "per-process --additional-mcp-config temporary file"})
 }
 
 // Agent drives GitHub Copilot CLI using --headless --stdio --no-auto-update
@@ -168,11 +168,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	}
 	a.mu.RUnlock()
 
-	if err := ensureCopilotMCPConfig(mcpConfig); err != nil {
-		return nil, fmt.Errorf("copilot: configure MCP: %w", err)
-	}
-
-	return newCopilotSession(ctx, workDir, cmd, extraArgs, model, mode, sessionID, extraEnv, provider)
+	return newCopilotSession(ctx, workDir, cmd, extraArgs, model, mode, sessionID, extraEnv, provider, mcpConfig)
 }
 
 // listSessionsProbeTimeout bounds how long we wait for a session.list probe.

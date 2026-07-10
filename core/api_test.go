@@ -232,7 +232,7 @@ func TestHandleSend_WorkDirStartsSideSession(t *testing.T) {
 			workDir: workDir,
 			session: workspaceSession,
 		}, nil
-	})
+	}, MCPBackendCapability{Kind: MCPCapabilityUnsupported, Reason: "test-only backend"})
 
 	platform := &stubCronReplyTargetPlatform{
 		stubPlatformEngine: stubPlatformEngine{n: "test"},
@@ -318,7 +318,7 @@ func TestHandleSend_WorkDirFollowsDirectParticipantOnInboundSession(t *testing.T
 			workDir: workDir,
 			session: workspaceSession,
 		}, nil
-	})
+	}, MCPBackendCapability{Kind: MCPCapabilityUnsupported, Reason: "test-only backend"})
 
 	platform := &stubCronReplyTargetPlatform{
 		stubPlatformEngine: stubPlatformEngine{n: "test"},

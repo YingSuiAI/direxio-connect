@@ -504,6 +504,82 @@ func TestNewClaudeSessionInjectsMCPConfigFile(t *testing.T) {
 	}
 }
 
+func TestClaudeMCPConfigCleanupAfterNormalExit(t *testing.T) {
+	dataDir := t.TempDir()
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	cs, err := newClaudeSession(
+		context.Background(),
+		t.TempDir(),
+		os.Args[0],
+		[]string{"-test.run=TestHelperProcess", "--", "exit"},
+		"",
+		"",
+		"",
+		"",
+		"default",
+		"",
+		"",
+		nil,
+		nil,
+		nil,
+		[]string{"GO_WANT_HELPER_PROCESS=1"},
+		"",
+		false,
+		core.SpawnOptions{},
+		0,
+		dataDir,
+		cfg,
+	)
+	if err != nil {
+		t.Fatalf("newClaudeSession: %v", err)
+	}
+	<-cs.done
+	assertNoClaudeMCPTempDirs(t, dataDir)
+}
+
+func TestClaudeMCPConfigCleanupAfterStartFailure(t *testing.T) {
+	dataDir := t.TempDir()
+	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
+	_, err := newClaudeSession(
+		context.Background(),
+		t.TempDir(),
+		filepath.Join(t.TempDir(), "missing-claude"),
+		nil,
+		"",
+		"",
+		"",
+		"",
+		"default",
+		"",
+		"",
+		nil,
+		nil,
+		nil,
+		nil,
+		"",
+		false,
+		core.SpawnOptions{},
+		0,
+		dataDir,
+		cfg,
+	)
+	if err == nil {
+		t.Fatal("newClaudeSession succeeded with missing command")
+	}
+	assertNoClaudeMCPTempDirs(t, dataDir)
+}
+
+func assertNoClaudeMCPTempDirs(t *testing.T, dataDir string) {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(dataDir, "agent-mcp", "*"))
+	if err != nil {
+		t.Fatalf("Glob: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temporary MCP directories survived cleanup: %v", matches)
+	}
+}
+
 func TestShellJoinArgs(t *testing.T) {
 	tests := []struct {
 		name string
@@ -830,6 +906,8 @@ func TestHelperProcess(t *testing.T) {
 	}
 	mode := os.Args[modeIdx]
 	switch mode {
+	case "exit":
+		os.Exit(0)
 	case "sleep":
 		time.Sleep(30 * time.Second)
 		os.Exit(0)

@@ -2,10 +2,8 @@ package antigravity
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -59,7 +57,7 @@ func TestNormalizeMode(t *testing.T) {
 }
 
 func TestSession_ContinueSessionTreatedAsFresh(t *testing.T) {
-	s, err := newAntigravitySession(context.Background(), "echo", nil, "/tmp", "", "default", core.ContinueSession, nil, 0, core.MCPConfig{})
+	s, err := newAntigravitySession(context.Background(), "echo", nil, "/tmp", "", "default", core.ContinueSession, nil, 0)
 	if err != nil {
 		t.Fatalf("newAntigravitySession: %v", err)
 	}
@@ -71,7 +69,7 @@ func TestSession_ContinueSessionTreatedAsFresh(t *testing.T) {
 }
 
 func TestBuildAntigravityArgs_PromptAtEnd(t *testing.T) {
-	s, _ := newAntigravitySession(context.Background(), "echo", nil, "/tmp", "", "default", "", nil, 0, core.MCPConfig{})
+	s, _ := newAntigravitySession(context.Background(), "echo", nil, "/tmp", "", "default", "", nil, 0)
 	args := s.buildAntigravityArgs("sid-1", true, "plan", "What is 1+1?")
 	if len(args) < 2 {
 		t.Fatalf("args too short: %v", args)
@@ -100,7 +98,7 @@ func TestUsesInteractivePermission(t *testing.T) {
 }
 
 func TestRespondPermission_WritesTerminalAnswer(t *testing.T) {
-	s, err := newAntigravitySession(context.Background(), "echo", nil, "/tmp", "", "default", "", nil, 0, core.MCPConfig{})
+	s, err := newAntigravitySession(context.Background(), "echo", nil, "/tmp", "", "default", "", nil, 0)
 	if err != nil {
 		t.Fatalf("newAntigravitySession: %v", err)
 	}
@@ -140,85 +138,14 @@ func TestRespondPermission_WritesTerminalAnswer(t *testing.T) {
 	}
 }
 
-func TestEnsureAntigravityMCPConfigWritesGlobalConfigs(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg := core.MCPConfigFromAgentToken("Dirextalk.D1", "https://d1.dirextalk.ai/mcp", "agent-token", "node-1")
-	if err := ensureAntigravityMCPConfig(cfg); err != nil {
-		t.Fatalf("ensureAntigravityMCPConfig: %v", err)
-	}
-
-	for _, path := range antigravityMCPConfigPaths(home) {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("ReadFile(%s): %v", path, err)
-		}
-
-		var parsed struct {
-			MCPServers map[string]struct {
-				ServerURL string            `json:"serverUrl"`
-				Headers   map[string]string `json:"headers"`
-				Type      string            `json:"type"`
-				URL       string            `json:"url"`
-			} `json:"mcpServers"`
-		}
-		if err := json.Unmarshal(data, &parsed); err != nil {
-			t.Fatalf("Unmarshal(%s): %v", path, err)
-		}
-
-		server := parsed.MCPServers["dirextalk_d1"]
-		if server.ServerURL != "https://d1.dirextalk.ai/mcp" {
-			t.Fatalf("%s serverUrl = %q", path, server.ServerURL)
-		}
-		if server.Headers["Authorization"] != "Bearer agent-token" {
-			t.Fatalf("%s Authorization header = %q", path, server.Headers["Authorization"])
-		}
-		if server.Headers["DIREXTALK-Agent-Node-Id"] != "node-1" {
-			t.Fatalf("%s node header = %q", path, server.Headers["DIREXTALK-Agent-Node-Id"])
-		}
-		if server.Type != "" || server.URL != "" {
-			t.Fatalf("%s should not write legacy type/url fields: %#v", path, server)
-		}
-	}
-}
-
-func TestEnsureAntigravityMCPConfigPreservesExistingServers(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	existingPath := filepath.Join(home, ".gemini", "config", "mcp_config.json")
-	if err := os.MkdirAll(filepath.Dir(existingPath), 0o700); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(existingPath, []byte(`{"mcpServers":{"existing":{"serverUrl":"https://example.com/mcp"}},"other":true}`), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	cfg := core.MCPConfigFromAgentToken("dirextalk-d1", "https://d1.dirextalk.ai/mcp", "agent-token", "")
-	if err := ensureAntigravityMCPConfig(cfg); err != nil {
-		t.Fatalf("ensureAntigravityMCPConfig: %v", err)
-	}
-
-	data, err := os.ReadFile(existingPath)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	var parsed map[string]any
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-	if parsed["other"] != true {
-		t.Fatalf("existing top-level keys not preserved: %#v", parsed)
-	}
-	servers, ok := parsed["mcpServers"].(map[string]any)
-	if !ok {
-		t.Fatalf("mcpServers type = %T", parsed["mcpServers"])
-	}
-	if _, ok := servers["existing"]; !ok {
-		t.Fatalf("existing server not preserved: %#v", servers)
-	}
-	if _, ok := servers["dirextalk-d1"]; !ok {
-		t.Fatalf("dirextalk server missing: %#v", servers)
+func TestNewRejectsMCPAsHostManaged(t *testing.T) {
+	_, err := New(map[string]any{
+		"mcp_server_name": "dirextalk-d1",
+		"mcp_url":         "https://d1.dirextalk.ai/mcp",
+		"mcp_agent_token": "agent-token",
+	})
+	if err == nil || !strings.Contains(err.Error(), "host-managed") {
+		t.Fatalf("New() error = %v, want host-managed MCP guidance", err)
 	}
 }
 

@@ -22,7 +22,7 @@ import (
 )
 
 func init() {
-	core.RegisterAgent("codex", New)
+	core.RegisterAgent("codex", New, core.MCPBackendCapability{Kind: core.MCPCapabilitySession, Reason: "per-process Codex config overrides"})
 }
 
 // Agent drives OpenAI Codex CLI using `codex exec --json`.
@@ -124,12 +124,37 @@ func appendCodexMCPConfigArgs(args []string, cfg core.MCPConfig) []string {
 	serverKey := "mcp_servers." + strconv.Quote(cfg.ServerName)
 	args = append(args,
 		"-c", serverKey+".url="+strconv.Quote(cfg.URL),
-		"-c", serverKey+".headers.Authorization="+strconv.Quote(cfg.Authorization),
+		"-c", serverKey+".bearer_token_env_var="+strconv.Quote(codexMCPAgentTokenEnv),
+		"-c", serverKey+".required=true",
 	)
 	if cfg.NodeID != "" {
-		args = append(args, "-c", serverKey+".headers."+strconv.Quote("DIREXTALK-Agent-Node-Id")+"="+strconv.Quote(cfg.NodeID))
+		args = append(args,
+			"-c", serverKey+".env_http_headers={"+
+				strconv.Quote("DIREXTALK-Agent-Node-Id")+"="+strconv.Quote(codexMCPNodeIDEnv)+"}",
+		)
 	}
 	return args
+}
+
+const (
+	codexMCPAgentTokenEnv = "DIREXTALK_MCP_AGENT_TOKEN"
+	codexMCPNodeIDEnv     = "DIREXTALK_MCP_NODE_ID"
+)
+
+func appendCodexMCPProcessEnv(env []string, cfg core.MCPConfig) []string {
+	if !cfg.Enabled() {
+		return env
+	}
+	authorization := strings.TrimSpace(cfg.Authorization)
+	_, token, found := strings.Cut(authorization, " ")
+	if !found {
+		token = authorization
+	}
+	mcpEnv := []string{codexMCPAgentTokenEnv + "=" + strings.TrimSpace(token)}
+	if cfg.NodeID != "" {
+		mcpEnv = append(mcpEnv, codexMCPNodeIDEnv+"="+cfg.NodeID)
+	}
+	return core.MergeEnv(env, mcpEnv)
 }
 
 func normalizeBackend(raw string) string {

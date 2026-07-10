@@ -46,6 +46,11 @@ func RedactArgs(args []string) []string {
 
 	for i := 0; i < len(out); i++ {
 		arg := strings.ToLower(out[i])
+		if strings.Contains(arg, "authorization") &&
+			(strings.Contains(arg, "bearer ") || strings.Contains(arg, "mcp_server")) {
+			out[i] = "***"
+			continue
+		}
 
 		// --flag=value format
 		for _, f := range sensitiveFlags {

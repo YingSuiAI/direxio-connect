@@ -95,6 +95,16 @@ auto_verify = false
 
 Set `<agent-backend>` to the local runtime you want to bridge. Supported backend names include `acp`, `claudecode`, `codex`, `gemini`, `cursor`, `copilot`, `qoder`, and `opencode` when those adapters are built into the binary.
 
+### Remote MCP capability
+
+Remote MCP is fail-closed. If any MCP option is present, the server name, URL (or domain), and agent token (or Authorization value) must form a complete canonical configuration. The endpoint must be an absolute HTTPS URL whose path is exactly `/mcp`, with no query or fragment, and authorization must be a non-empty `Bearer` token. Set `mcp_enabled = false` to retain staged values without activating MCP. Every backend must declare its capability explicitly.
+
+| Capability | Backends | Behavior |
+| --- | --- | --- |
+| `session` | `acp`, `claudecode`, `codex`, `copilot`, `gemini`, `kimi`, `opencode`, `qoder` | Uses the backend's official per-session/process schema. ACP also verifies that the runtime negotiated HTTP MCP support. Temporary credential directories and files are restricted to the current account (plus Windows SYSTEM/Administrators) and removed on normal or failed startup. |
+| `host-managed` | `antigravity`, `cursor`, `iflow` | Rejects connect-managed MCP because no verified session/process injection surface exists. Configure MCP in the host runtime outside `dirextalk-connect`. ACP runtimes such as OpenClaw can be restricted with `mcp_capability = "host-managed"`. |
+| `unsupported` | `devin`, `pi`, `reasonix`, `tmux` | Rejects remote MCP with an actionable error. The backend remains available for non-MCP use. |
+
 Run:
 
 ```bash

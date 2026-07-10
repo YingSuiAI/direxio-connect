@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -117,6 +118,20 @@ func TestNewAgentValidation(t *testing.T) {
 	// so we just verify the session check happens before the tmux PATH check.
 }
 
+func TestNewRejectsMCPAsUnsupported(t *testing.T) {
+	opts := map[string]any{
+		"session":         "agents",
+		"init_command":    "claude",
+		"mcp_server_name": "dirextalk-d1",
+		"mcp_url":         "https://d1.dirextalk.ai/mcp",
+		"mcp_agent_token": "agent-token",
+	}
+	_, err := New(opts)
+	if err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("New() error = %v, want unsupported MCP guidance", err)
+	}
+}
+
 // TestResolveTargetUniquePerWorkDir verifies that two workDirs sharing the same
 // basename but different parent paths never map to the same tmux window target.
 func TestResolveTargetUniquePerWorkDir(t *testing.T) {
@@ -146,11 +161,11 @@ func TestResolveTargetStable(t *testing.T) {
 }
 
 func TestTmuxExportCommand(t *testing.T) {
-	cmd, ok := tmuxExportCommand("DIREXTALK_MCP_AGENT_TOKEN=sk-test token")
+	cmd, ok := tmuxExportCommand("SENSITIVE_TOKEN=sk-test token")
 	if !ok {
 		t.Fatal("tmuxExportCommand returned false")
 	}
-	if cmd != "export DIREXTALK_MCP_AGENT_TOKEN='sk-test token'" {
+	if cmd != "export SENSITIVE_TOKEN='sk-test token'" {
 		t.Fatalf("command = %q", cmd)
 	}
 

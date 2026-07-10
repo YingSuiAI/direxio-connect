@@ -63,3 +63,18 @@ func TestRedactArgs_Empty(t *testing.T) {
 		t.Errorf("expected empty, got %v", out)
 	}
 }
+
+func TestRedactArgs_MasksInlineMCPAuthorization(t *testing.T) {
+	secret := `mcp_servers."dirextalk".http_headers={Authorization="Bearer agent-token"}`
+	out := RedactArgs([]string{"-c", secret, "--model", "gpt-5"})
+
+	if out[1] != "***" {
+		t.Fatalf("inline MCP authorization not redacted: %q", out[1])
+	}
+	if strings.Contains(strings.Join(out, " "), "agent-token") {
+		t.Fatalf("redacted args still contain bearer token: %#v", out)
+	}
+	if out[3] != "gpt-5" {
+		t.Fatalf("non-sensitive arg modified: %#v", out)
+	}
+}

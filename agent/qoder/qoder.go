@@ -14,7 +14,7 @@ import (
 )
 
 func init() {
-	core.RegisterAgent("qoder", New)
+	core.RegisterAgent("qoder", New, core.MCPBackendCapability{Kind: core.MCPCapabilitySession, Reason: "per-turn --mcp-config temporary file"})
 }
 
 // Agent drives Qoder CLI using `qodercli -p <prompt> -f stream-json`.

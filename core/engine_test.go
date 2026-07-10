@@ -4638,7 +4638,7 @@ func TestCmdModel_MultiWorkspacePersistsWorkspaceModelForRecreatedAgent(t *testi
 			agent.mode = mode
 		}
 		return agent, nil
-	})
+	}, MCPBackendCapability{Kind: MCPCapabilityUnsupported, Reason: "test-only backend"})
 
 	p := &stubPlatformEngine{n: "plain"}
 	globalAgent := &namedStubModelModeAgent{
@@ -4734,7 +4734,7 @@ func TestGetOrCreateWorkspaceAgent_InheritsActiveProvider(t *testing.T) {
 			agent.mode = mode
 		}
 		return agent, nil
-	})
+	}, MCPBackendCapability{Kind: MCPCapabilityUnsupported, Reason: "test-only backend"})
 
 	globalAgent := &namedStubModelModeAgent{
 		name: agentName,
@@ -4786,7 +4786,7 @@ func TestGetOrCreateWorkspaceAgent_InheritsSnapshotOptions(t *testing.T) {
 			},
 			opts: snapshot,
 		}, nil
-	})
+	}, MCPBackendCapability{Kind: MCPCapabilityUnsupported, Reason: "test-only backend"})
 
 	globalAgent := &namedStubWorkspaceOptionAgent{
 		namedStubModelModeAgent: namedStubModelModeAgent{
@@ -4855,7 +4855,7 @@ func TestWorkspaceContext_PerChannelIndependence(t *testing.T) {
 			agent.workDir = workDir
 		}
 		return agent, nil
-	})
+	}, MCPBackendCapability{Kind: MCPCapabilityUnsupported, Reason: "test-only backend"})
 
 	workspace := normalizeWorkspacePath(t.TempDir())
 	dirA := filepath.Join(workspace, "channelA")
@@ -11175,7 +11175,7 @@ func TestCmdShow_MultiWorkspaceUsesBoundWorkDirForRelativeReference(t *testing.T
 	agentName := "test-show-workspace"
 	RegisterAgent(agentName, func(opts map[string]any) (Agent, error) {
 		return &namedStubModelModeAgent{name: agentName}, nil
-	})
+	}, MCPBackendCapability{Kind: MCPCapabilityUnsupported, Reason: "test-only backend"})
 	e := NewEngine("test", &namedStubModelModeAgent{name: agentName}, []Platform{p}, "", LangEnglish)
 	e.SetAdminFrom("admin")
 

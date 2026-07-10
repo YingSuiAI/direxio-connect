@@ -74,7 +74,7 @@ func TestWorkspaceAgentOptionsPreservesWindowPerSession(t *testing.T) {
 	a := &Agent{
 		sessionName:      "claude-work",
 		windowPerSession: true,
-		configEnv:        []string{"DIREXTALK_MCP_ENABLED=1", "DIREXTALK_MCP_AGENT_TOKEN=agent-token"},
+		configEnv:        []string{"WRAPPER_ENABLED=1", "WRAPPER_TOKEN=agent-token"},
 	}
 	opts := a.WorkspaceAgentOptions()
 	if opts["window_per_session"] != true {
@@ -84,7 +84,7 @@ func TestWorkspaceAgentOptionsPreservesWindowPerSession(t *testing.T) {
 	if !ok {
 		t.Fatalf("WorkspaceAgentOptions env type = %T", opts["env"])
 	}
-	if env["DIREXTALK_MCP_ENABLED"] != "1" || env["DIREXTALK_MCP_AGENT_TOKEN"] != "agent-token" {
+	if env["WRAPPER_ENABLED"] != "1" || env["WRAPPER_TOKEN"] != "agent-token" {
 		t.Fatalf("WorkspaceAgentOptions env = %#v", env)
 	}
 }

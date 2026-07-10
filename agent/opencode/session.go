@@ -87,7 +87,8 @@ func (s *opencodeSession) Send(prompt string, images []core.ImageAttachment, fil
 	isResume := chatID != ""
 
 	args := s.buildRunArgs(prompt, imagePaths, chatID)
-	if err := ensureOpencodeMCPConfig(s.mcpConfig); err != nil {
+	env, err := buildOpencodeSessionEnv(os.Environ(), s.extraEnv, s.mcpConfig)
+	if err != nil {
 		return fmt.Errorf("opencodeSession: configure MCP: %w", err)
 	}
 
@@ -95,10 +96,6 @@ func (s *opencodeSession) Send(prompt string, images []core.ImageAttachment, fil
 
 	cmd := exec.CommandContext(s.ctx, s.cmd, args...)
 	cmd.Dir = s.workDir
-	env := os.Environ()
-	if len(s.extraEnv) > 0 {
-		env = core.MergeEnv(env, s.extraEnv)
-	}
 	cmd.Env = env
 
 	stdout, err := cmd.StdoutPipe()
@@ -196,31 +193,29 @@ func (s *opencodeSession) buildRunArgs(prompt string, imagePaths []string, chatI
 	return args
 }
 
-func ensureOpencodeMCPConfig(cfg core.MCPConfig) error {
+func buildOpencodeSessionEnv(base, extra []string, cfg core.MCPConfig) ([]string, error) {
+	env := core.MergeEnv(base, extra)
 	if !cfg.Enabled() {
-		return nil
+		return env, nil
 	}
-	homeDir, err := os.UserHomeDir()
+	content, err := opencodeMCPConfigContent(lookupEnvValue(env, "OPENCODE_CONFIG_CONTENT"), cfg)
 	if err != nil {
-		return fmt.Errorf("cannot determine home dir: %w", err)
+		return nil, err
 	}
-	return writeOpencodeMCPConfig(opencodeMCPConfigPath(homeDir), cfg)
+	return core.MergeEnv(env, []string{"OPENCODE_CONFIG_CONTENT=" + content}), nil
 }
 
-func opencodeMCPConfigPath(homeDir string) string {
-	return filepath.Join(homeDir, ".config", "opencode", "opencode.json")
-}
+func opencodeMCPConfigContent(existing string, cfg core.MCPConfig) (string, error) {
+	if !cfg.Enabled() {
+		return existing, nil
+	}
 
-func writeOpencodeMCPConfig(path string, cfg core.MCPConfig) error {
 	doc := map[string]any{}
-	if data, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(data)) > 0 {
-		if err := json.Unmarshal(data, &doc); err != nil {
-			return fmt.Errorf("read OpenCode config %s: %w", path, err)
+	if strings.TrimSpace(existing) != "" {
+		if err := json.Unmarshal([]byte(existing), &doc); err != nil {
+			return "", fmt.Errorf("parse existing OPENCODE_CONFIG_CONTENT: %w", err)
 		}
-	} else if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read OpenCode config %s: %w", path, err)
 	}
-
 	if _, ok := doc["$schema"]; !ok {
 		doc["$schema"] = "https://opencode.ai/config.json"
 	}
@@ -242,39 +237,21 @@ func writeOpencodeMCPConfig(path string, cfg core.MCPConfig) error {
 		"headers": headers,
 	}
 	doc["mcp"] = mcp
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("create OpenCode config dir %s: %w", filepath.Dir(path), err)
-	}
-	var out bytes.Buffer
-	enc := json.NewEncoder(&out)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(doc); err != nil {
-		return fmt.Errorf("encode OpenCode config %s: %w", path, err)
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".opencode-*.json")
+	out, err := json.Marshal(doc)
 	if err != nil {
-		return fmt.Errorf("create temp OpenCode config %s: %w", path, err)
+		return "", fmt.Errorf("encode OpenCode MCP config: %w", err)
 	}
-	tmpPath := tmp.Name()
-	defer func() {
-		_ = os.Remove(tmpPath)
-	}()
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("chmod temp OpenCode config %s: %w", tmpPath, err)
+	return string(out), nil
+}
+
+func lookupEnvValue(env []string, key string) string {
+	prefix := key + "="
+	for i := len(env) - 1; i >= 0; i-- {
+		if strings.HasPrefix(env[i], prefix) {
+			return strings.TrimPrefix(env[i], prefix)
+		}
 	}
-	if _, err := tmp.Write(out.Bytes()); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write temp OpenCode config %s: %w", tmpPath, err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temp OpenCode config %s: %w", tmpPath, err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("replace OpenCode config %s: %w", path, err)
-	}
-	return nil
+	return ""
 }
 
 func (s *opencodeSession) readLoop(cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer) {

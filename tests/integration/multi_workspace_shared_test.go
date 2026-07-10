@@ -195,7 +195,7 @@ func registerIntegrationSharedAgent() {
 		core.RegisterAgent(integrationSharedAgentName, func(opts map[string]any) (core.Agent, error) {
 			workDir, _ := opts["work_dir"].(string)
 			return &integrationRoutingAgent{workDir: workDir}, nil
-		})
+		}, core.MCPBackendCapability{Kind: core.MCPCapabilityUnsupported, Reason: "test-only backend"})
 	})
 }
 

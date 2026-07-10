@@ -133,10 +133,11 @@ func TestAppServerSession_HandleThreadTokenUsageUpdatedCachesContextUsage(t *tes
 	}
 }
 
-func TestAppServerSession_UsesConfiguredCommandAndExtraArgs(t *testing.T) {
+func TestAppServerSession_MCPUsesConfiguredCommandAndEnvironment(t *testing.T) {
 	workDir := t.TempDir()
 	pathDir := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "helper-args.txt")
+	envLogPath := filepath.Join(t.TempDir(), "helper-env.json")
 	helperBin, err := filepath.Abs(os.Args[0])
 	if err != nil {
 		t.Fatalf("resolve helper binary: %v", err)
@@ -147,6 +148,7 @@ func TestAppServerSession_UsesConfiguredCommandAndExtraArgs(t *testing.T) {
 	t.Setenv("PATH", pathDir)
 	t.Setenv("CC_CONNECT_APP_SERVER_HELPER", "1")
 	t.Setenv("CC_CONNECT_APP_SERVER_HELPER_LOG", logPath)
+	t.Setenv("CC_CONNECT_APP_SERVER_HELPER_ENV_LOG", envLogPath)
 
 	agent, err := New(map[string]any{
 		"backend":        "app_server",
@@ -163,6 +165,10 @@ func TestAppServerSession_UsesConfiguredCommandAndExtraArgs(t *testing.T) {
 		"mcp_url":         "https://d1.dirextalk.ai/mcp",
 		"mcp_agent_token": "fake-agent-token",
 		"mcp_node_id":     "codex-d1",
+		"env": map[string]any{
+			codexMCPAgentTokenEnv: "stale-token",
+			codexMCPNodeIDEnv:     "stale-node",
+		},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -191,11 +197,31 @@ func TestAppServerSession_UsesConfiguredCommandAndExtraArgs(t *testing.T) {
 	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".url="https://d1.dirextalk.ai/mcp"`}) {
 		t.Fatalf("helper args missing MCP url config flag: %#v", args)
 	}
-	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".headers.Authorization="Bearer fake-agent-token"`}) {
-		t.Fatalf("helper args missing MCP Authorization config flag: %#v", args)
+	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".bearer_token_env_var="DIREXTALK_MCP_AGENT_TOKEN"`}) {
+		t.Fatalf("helper args missing MCP bearer token env config flag: %#v", args)
 	}
-	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".headers."DIREXTALK-Agent-Node-Id"="codex-d1"`}) {
-		t.Fatalf("helper args missing MCP node id config flag: %#v", args)
+	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".required=true`}) {
+		t.Fatalf("helper args missing required MCP readiness flag: %#v", args)
+	}
+	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".env_http_headers={"DIREXTALK-Agent-Node-Id"="DIREXTALK_MCP_NODE_ID"}`}) {
+		t.Fatalf("helper args missing MCP environment-backed header config flag: %#v", args)
+	}
+	joined := strings.Join(args, "\n")
+	for _, forbidden := range []string{"fake-agent-token", "Bearer fake-agent-token", "codex-d1", "Authorization=", ".http_headers="} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("app-server argv leaks static MCP value %q: %#v", forbidden, args)
+		}
+	}
+	envData, err := os.ReadFile(envLogPath)
+	if err != nil {
+		t.Fatalf("read helper MCP env: %v", err)
+	}
+	var capturedEnv map[string]string
+	if err := json.Unmarshal(envData, &capturedEnv); err != nil {
+		t.Fatalf("decode helper MCP env: %v", err)
+	}
+	if capturedEnv[codexMCPAgentTokenEnv] != "fake-agent-token" || capturedEnv[codexMCPNodeIDEnv] != "codex-d1" {
+		t.Fatalf("helper MCP env = %#v, want raw token and node id", capturedEnv)
 	}
 }
 
@@ -208,6 +234,14 @@ func TestAppServerSession_AppServerHelper(t *testing.T) {
 		os.Exit(2)
 	}
 	if err := os.WriteFile(logPath, []byte(strings.Join(os.Args[1:], "\n")), 0o600); err != nil {
+		os.Exit(2)
+	}
+	envLogPath := os.Getenv("CC_CONNECT_APP_SERVER_HELPER_ENV_LOG")
+	envData, err := json.Marshal(map[string]string{
+		codexMCPAgentTokenEnv: os.Getenv(codexMCPAgentTokenEnv),
+		codexMCPNodeIDEnv:     os.Getenv(codexMCPNodeIDEnv),
+	})
+	if err != nil || envLogPath == "" || os.WriteFile(envLogPath, envData, 0o600) != nil {
 		os.Exit(2)
 	}
 

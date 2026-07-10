@@ -59,7 +59,7 @@ func newTestEngineWithMultiWorkspaceAgent(t *testing.T, baseDir string) *Engine 
 	agentName := "shared-binding-test-agent"
 	RegisterAgent(agentName, func(opts map[string]any) (Agent, error) {
 		return &namedTestAgent{name: agentName}, nil
-	})
+	}, MCPBackendCapability{Kind: MCPCapabilityUnsupported, Reason: "test-only backend"})
 	e := NewEngine("test", &namedTestAgent{name: agentName}, nil, sessionPath, LangEnglish)
 	e.SetMultiWorkspace(baseDir, bindingPath)
 	return e
@@ -530,7 +530,7 @@ func TestMultiWorkspaceAgent_PropagatesRunAsUser(t *testing.T) {
 			runAsUser:      "partseeker-coder",
 			runAsEnv:       []string{"CUSTOM_VAR", "ANOTHER_VAR"},
 		}, nil
-	})
+	}, MCPBackendCapability{Kind: MCPCapabilityUnsupported, Reason: "test-only backend"})
 
 	// Parent agent: reports run_as_user = "partseeker-coder" and a two-entry
 	// run_as_env extension. The per-workspace agent must inherit both.
@@ -598,7 +598,7 @@ func TestMultiWorkspaceAgent_NoPropagationWhenParentHasNoRunAs(t *testing.T) {
 		}
 		capturedOpts = append(capturedOpts, snapshot)
 		return &namedTestAgent{name: agentName}, nil
-	})
+	}, MCPBackendCapability{Kind: MCPCapabilityUnsupported, Reason: "test-only backend"})
 
 	// Parent agent is the plain namedTestAgent with no GetRunAsUser method.
 	// The interface assertion in getOrCreateWorkspaceAgent must skip silently.

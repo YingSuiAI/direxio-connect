@@ -21,7 +21,7 @@ import (
 )
 
 func init() {
-	core.RegisterAgent("claudecode", New)
+	core.RegisterAgent("claudecode", New, core.MCPBackendCapability{Kind: core.MCPCapabilitySession, Reason: "per-session --mcp-config temporary file"})
 }
 
 // Agent drives Claude Code CLI using --input-format stream-json
