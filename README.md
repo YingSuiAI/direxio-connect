@@ -23,10 +23,10 @@ brew install dirextalk-connect
 From GitHub Releases:
 
 ```bash
-curl -L -o dirextalk-connect.tar.gz https://github.com/YingSuiAI/dirextalk-connect/releases/latest/download/dirextalk-connect-v1.3.25-linux-amd64.tar.gz
+curl -L -o dirextalk-connect.tar.gz https://github.com/YingSuiAI/dirextalk-connect/releases/latest/download/dirextalk-connect-v1.3.26-linux-amd64.tar.gz
 tar xzf dirextalk-connect.tar.gz
-chmod +x dirextalk-connect-v1.3.25-linux-amd64
-sudo mv dirextalk-connect-v1.3.25-linux-amd64 /usr/local/bin/dirextalk-connect
+chmod +x dirextalk-connect-v1.3.26-linux-amd64
+sudo mv dirextalk-connect-v1.3.26-linux-amd64 /usr/local/bin/dirextalk-connect
 ```
 
 Build from source:
@@ -114,6 +114,8 @@ dirextalk-connect --config /path/to/config.toml
 ### Hermes ACP Adapter
 
 Hermes ACP should be launched through the Dirextalk compatibility adapter so reasoning text is buffered and cleaned before it reaches the Matrix room:
+
+This adapter owns only the conversation bridge. Hermes currently does not advertise HTTP MCP support in ACP initialization, so its service-scoped native profile `mcp_servers` registry owns MCP; do not send per-session MCP data through the adapter unless Hermes later negotiates `mcpCapabilities.http = true`.
 
 ```toml
 [projects.agent]

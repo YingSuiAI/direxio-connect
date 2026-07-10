@@ -68,6 +68,16 @@ auto_verify = false
 
 将 `<agent-backend>` 替换为要桥接的本地运行时。默认发布构建会包含已有适配器，例如 `acp`、`claudecode`、`codex`、`gemini`、`cursor`、`copilot`、`qoder`、`opencode`。
 
+### 远端 MCP 能力
+
+远端 MCP 采用 fail-closed。只要出现任一 MCP 配置项，server name、URL（或 domain）与 agent token（或 Authorization 值）就必须组成完整 canonical 配置。endpoint 必须是绝对 HTTPS URL，路径精确为 `/mcp`，不得带 query、fragment 或 userinfo；认证必须是非空 `Bearer` token。可设置 `mcp_enabled = false` 暂存配置而不启用。每个 backend 都必须显式声明能力。
+
+| 能力 | Backend | 行为 |
+| --- | --- | --- |
+| `session` | `acp`、`claudecode`、`codex`、`copilot`、`gemini`、`kimi`、`opencode`、`qoder` | 使用该 backend 官方的会话/进程级 schema。ACP 还必须协商得到 HTTP MCP 支持。临时凭据目录仅允许当前账号访问（Windows 另含 SYSTEM/Administrators），正常或失败启动后都会清理。 |
+| `host-managed` | `antigravity`、`cursor`、`iflow`，以及 OpenClaw/Hermes 宿主 | connect 不注入 MCP，由宿主原生 registry/profile 管理。宿主启动 Codex 等 child 不改变所有权。 |
+| `unsupported` | `devin`、`pi`、`reasonix`、`tmux` | 启用远端 MCP 时给出可操作错误；不使用 MCP 时 backend 仍可运行。 |
+
 运行:
 
 ```bash
@@ -77,6 +87,8 @@ dirextalk-connect --config /path/to/config.toml
 ### Hermes ACP Adapter
 
 Hermes ACP 应通过 Dirextalk 兼容层启动，这样推理文本会先被缓存和清洗，不会直接进入 Matrix agent room：
+
+该 adapter 只负责会话桥接。Hermes 当前在 ACP initialize 中没有声明 HTTP MCP 支持，因此 MCP 必须由服务隔离 profile 的原生 `mcp_servers` registry 管理；只有未来 Hermes 协商得到 `mcpCapabilities.http = true` 后，才可改用会话注入。
 
 ```toml
 [projects.agent]
