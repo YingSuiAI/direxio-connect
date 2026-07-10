@@ -258,7 +258,7 @@ func (s *appServerSession) connect() error {
 	if baseURL := strings.TrimSpace(s.baseURL); baseURL != "" {
 		args = append(args, "-c", fmt.Sprintf("openai_base_url=%q", baseURL))
 	}
-	args = appendCodexMCPConfigArgs(args, s.mcpConfig)
+	args = appendCodexAppServerMCPConfigArgs(args, s.mcpConfig, s.mode)
 	bin := s.cliBin
 	if bin == "" {
 		bin = "codex"

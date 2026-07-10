@@ -140,6 +140,15 @@ func appendCodexMCPConfigArgs(args []string, cfg core.MCPConfig) []string {
 	return args
 }
 
+func appendCodexAppServerMCPConfigArgs(args []string, cfg core.MCPConfig, mode string) []string {
+	args = appendCodexMCPConfigArgs(args, cfg)
+	if !cfg.Enabled() || normalizeMode(mode) == "suggest" {
+		return args
+	}
+	serverKey := "mcp_servers." + cfg.ServerName
+	return append(args, "-c", serverKey+`.default_tools_approval_mode="approve"`)
+}
+
 const (
 	codexMCPAgentTokenEnv = "DIREXTALK_MCP_AGENT_TOKEN"
 	codexMCPNodeIDEnv     = "DIREXTALK_MCP_NODE_ID"

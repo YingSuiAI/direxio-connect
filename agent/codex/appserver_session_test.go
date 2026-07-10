@@ -170,7 +170,7 @@ func TestAppServerSession_MCPUsesConfiguredCommandAndEnvironment(t *testing.T) {
 			"configured-extra",
 		}, " "),
 		"work_dir":        workDir,
-		"mode":            "yolo",
+		"mode":            "read-only",
 		"mcp_server_name": "dirextalk-d1_dirextalk_ai",
 		"mcp_url":         "https://d1.dirextalk.ai/mcp",
 		"mcp_agent_token": "fake-agent-token",
@@ -212,6 +212,9 @@ func TestAppServerSession_MCPUsesConfiguredCommandAndEnvironment(t *testing.T) {
 	}
 	if !containsSequence(args, []string{"-c", `mcp_servers.dirextalk-d1_dirextalk_ai.required=true`}) {
 		t.Fatalf("helper args missing required MCP readiness flag: %#v", args)
+	}
+	if !containsSequence(args, []string{"-c", `mcp_servers.dirextalk-d1_dirextalk_ai.default_tools_approval_mode="approve"`}) {
+		t.Fatalf("helper args missing MCP no-confirm approval mode: %#v", args)
 	}
 	if !containsSequence(args, []string{"-c", `mcp_servers.dirextalk-d1_dirextalk_ai.env_http_headers={"DIREXTALK-Agent-Node-Id"="DIREXTALK_MCP_NODE_ID"}`}) {
 		t.Fatalf("helper args missing MCP environment-backed header config flag: %#v", args)
