@@ -393,6 +393,48 @@ func TestAppServerSession_HandleRequestUserInputEmitsAskQuestion(t *testing.T) {
 	}
 }
 
+func TestAppServerSession_ReadOnlyAutomaticallyApprovesPermissionRequests(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stdin := &lockedWriteCloser{}
+	s := &appServerSession{
+		mode:             "read-only",
+		events:           make(chan core.Event, 1),
+		ctx:              ctx,
+		pendingApprovals: make(map[string]chan core.PermissionResult),
+		stdin:            stdin,
+	}
+	s.handleServerRequest(serverRequestProbe(t, `"mcp-permission-1"`, "item/permissions/requestApproval", map[string]any{
+		"permissions": map[string]any{"network": map[string]any{"hosts": []string{"a4.dirextalk.ai"}}},
+	}))
+
+	select {
+	case event := <-s.events:
+		t.Fatalf("read-only mode emitted approval request: %#v", event)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	line := waitForWrittenJSONLine(t, stdin)
+	var envelope struct {
+		JSONRPC string `json:"jsonrpc"`
+		ID      string `json:"id"`
+		Result  struct {
+			Permissions map[string]any `json:"permissions"`
+			Scope       string         `json:"scope"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(line), &envelope); err != nil {
+		t.Fatalf("decode response %q: %v", line, err)
+	}
+	if envelope.JSONRPC != "2.0" || envelope.ID != "mcp-permission-1" {
+		t.Fatalf("envelope = %#v", envelope)
+	}
+	if envelope.Result.Scope != "turn" || envelope.Result.Permissions["network"] == nil {
+		t.Fatalf("permission response = %#v, want granted turn permissions", envelope.Result)
+	}
+}
+
 func TestAppServerSession_HandleRequestUserInputWritesCodexResponse(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

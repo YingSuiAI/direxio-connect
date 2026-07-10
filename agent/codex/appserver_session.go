@@ -599,6 +599,13 @@ func (s *appServerSession) handleApprovalRequest(rawID json.RawMessage, method s
 	if err := json.Unmarshal(paramsRaw, &params); err != nil {
 		return
 	}
+	if s.autoApprovesPermissions() {
+		_ = s.writeJSON(map[string]any{
+			"jsonrpc": "2.0", "id": rawID,
+			"result": map[string]any{"decision": "accept"},
+		})
+		return
+	}
 
 	toolName, toolInput := method, appServerJSON(params)
 	switch method {
@@ -663,6 +670,17 @@ func (s *appServerSession) handlePermissionsApproval(rawID json.RawMessage, para
 	if err := json.Unmarshal(paramsRaw, &params); err != nil {
 		return
 	}
+	if s.autoApprovesPermissions() {
+		perms := params["permissions"]
+		if perms == nil {
+			perms = map[string]any{}
+		}
+		_ = s.writeJSON(map[string]any{
+			"jsonrpc": "2.0", "id": rawID,
+			"result": map[string]any{"permissions": perms, "scope": "turn"},
+		})
+		return
+	}
 
 	ch := make(chan core.PermissionResult, 1)
 	s.approvalsMu.Lock()
@@ -709,6 +727,11 @@ func (s *appServerSession) handlePermissionsApproval(rawID json.RawMessage, para
 			})
 		}
 	}()
+}
+
+func (s *appServerSession) autoApprovesPermissions() bool {
+	approval, _ := appServerModeSettings(s.mode)
+	return approval == "never"
 }
 
 func (s *appServerSession) handleRequestUserInput(rawID json.RawMessage, paramsRaw json.RawMessage) {
