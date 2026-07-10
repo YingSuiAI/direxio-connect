@@ -121,7 +121,10 @@ func appendCodexMCPConfigArgs(args []string, cfg core.MCPConfig) []string {
 	if !cfg.Enabled() {
 		return args
 	}
-	serverKey := "mcp_servers." + strconv.Quote(cfg.ServerName)
+	// Codex MCP server names are already validated identifiers. Quoting the
+	// name here makes the quotes part of the dotted config key and causes
+	// Codex to reject the resulting server name.
+	serverKey := "mcp_servers." + cfg.ServerName
 	args = append(args,
 		"-c", serverKey+".url="+strconv.Quote(cfg.URL),
 		"-c", serverKey+".bearer_token_env_var="+strconv.Quote(codexMCPAgentTokenEnv),

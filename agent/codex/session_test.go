@@ -113,16 +113,16 @@ func TestBuildExecArgs_IncludesMCPConfig(t *testing.T) {
 
 	args := cs.buildExecArgs("hello", nil)
 
-	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".url="https://d1.dirextalk.ai/mcp"`}) {
+	if !containsSequence(args, []string{"-c", `mcp_servers.dirextalk-d1_dirextalk_ai.url="https://d1.dirextalk.ai/mcp"`}) {
 		t.Fatalf("args missing MCP url config flag: %v", args)
 	}
-	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".bearer_token_env_var="DIREXTALK_MCP_AGENT_TOKEN"`}) {
+	if !containsSequence(args, []string{"-c", `mcp_servers.dirextalk-d1_dirextalk_ai.bearer_token_env_var="DIREXTALK_MCP_AGENT_TOKEN"`}) {
 		t.Fatalf("args missing MCP bearer token env config flag: %v", args)
 	}
-	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".required=true`}) {
+	if !containsSequence(args, []string{"-c", `mcp_servers.dirextalk-d1_dirextalk_ai.required=true`}) {
 		t.Fatalf("args missing required MCP readiness flag: %v", args)
 	}
-	if !containsSequence(args, []string{"-c", `mcp_servers."dirextalk-d1_dirextalk_ai".env_http_headers={"DIREXTALK-Agent-Node-Id"="DIREXTALK_MCP_NODE_ID"}`}) {
+	if !containsSequence(args, []string{"-c", `mcp_servers.dirextalk-d1_dirextalk_ai.env_http_headers={"DIREXTALK-Agent-Node-Id"="DIREXTALK_MCP_NODE_ID"}`}) {
 		t.Fatalf("args missing MCP environment-backed header config flag: %v", args)
 	}
 	joined := strings.Join(args, "\n")
