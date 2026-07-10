@@ -32,6 +32,7 @@ func init() {
 //
 // Modes on the exec backend (maps to codex exec flags):
 //   - "suggest":   --sandbox read-only       + approval_policy=never (no prompts)
+//   - "read-only": --sandbox read-only       + approval_policy=never (no prompts)
 //   - "auto-edit": --sandbox workspace-write + approval_policy=never (alias of full-auto)
 //   - "full-auto": --sandbox workspace-write + approval_policy=never
 //   - "yolo":      --dangerously-bypass-approvals-and-sandbox
@@ -39,7 +40,7 @@ type Agent struct {
 	workDir         string
 	model           string
 	reasoningEffort string
-	mode            string // "suggest" | "auto-edit" | "full-auto" | "yolo"
+	mode            string // "suggest" | "read-only" | "auto-edit" | "full-auto" | "yolo"
 	backend         string // "exec" | "app_server"
 	appServerURL    string
 	codexHome       string
@@ -250,6 +251,8 @@ func windowsLocalAppDataCodexCommand() string {
 
 func normalizeMode(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "read-only", "readonly", "read_only":
+		return "read-only"
 	case "auto-edit", "autoedit", "auto_edit", "edit":
 		return "auto-edit"
 	case "full-auto", "fullauto", "full_auto", "auto":
@@ -886,7 +889,8 @@ func (a *Agent) activeProviderCodexConfig() (name string, apiKey string, wireAPI
 //     "suggest" label refers to the *intent* (read-only safety) — the CLI does
 //     not pop interactive approval prompts on this backend.
 //   - app_server backend: "suggest" enables real interactive approval requests
-//     (execCommandApproval / applyPatchApproval / permissionsApproval).
+//     (execCommandApproval / applyPatchApproval / permissionsApproval), while
+//     "read-only" keeps the sandbox read-only and skips those prompts.
 //
 // Note: auto-edit and full-auto produce the same flags on the exec backend
 // (codex CLI has no separate "ask for shell only" mode); auto-edit is kept as
@@ -896,6 +900,9 @@ func (a *Agent) PermissionModes() []core.PermissionModeInfo {
 		{Key: "suggest", Name: "Suggest", NameZh: "建议",
 			Desc:   "Read-only sandbox; on exec backend no prompts, on app_server backend asks for every tool call",
 			DescZh: "只读沙箱；exec 后端不弹审批，app_server 后端每次工具调用都会询问"},
+		{Key: "read-only", Name: "Read Only", NameZh: "只读免确认",
+			Desc:   "Read-only sandbox, no approval prompts",
+			DescZh: "只读沙箱，不弹审批"},
 		{Key: "auto-edit", Name: "Auto Edit", NameZh: "自动编辑",
 			Desc:   "Workspace-write sandbox, no approval prompts (alias of Full Auto)",
 			DescZh: "工作区可写沙箱，不弹审批（等同于全自动）"},

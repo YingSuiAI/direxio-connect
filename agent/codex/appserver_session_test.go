@@ -32,6 +32,16 @@ func TestAppServerSession_ApplyThreadRuntimeState(t *testing.T) {
 	}
 }
 
+func TestAppServerModeSettings_ReadOnlySkipsApproval(t *testing.T) {
+	approval, sandbox := appServerModeSettings("read-only")
+	if approval != "never" {
+		t.Fatalf("approval = %q, want never", approval)
+	}
+	if sandbox != "read-only" {
+		t.Fatalf("sandbox = %q, want read-only", sandbox)
+	}
+}
+
 func TestAppServerSession_HandleRateLimitsUpdatedCachesUsage(t *testing.T) {
 	s := &appServerSession{}
 	raw, err := json.Marshal(appServerRateLimitsResponse{

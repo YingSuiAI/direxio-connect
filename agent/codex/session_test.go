@@ -226,6 +226,7 @@ func TestBuildExecArgs_ModeMapping(t *testing.T) {
 		wantNoFullAuto bool   // always true: --full-auto is removed in codex 0.137+
 	}{
 		{mode: "suggest", wantSandbox: "read-only", wantApproval: true, wantNoFullAuto: true},
+		{mode: "read-only", wantSandbox: "read-only", wantApproval: true, wantNoFullAuto: true},
 		{mode: "auto-edit", wantSandbox: "workspace-write", wantApproval: true, wantNoFullAuto: true},
 		{mode: "full-auto", wantSandbox: "workspace-write", wantApproval: true, wantNoFullAuto: true},
 		{mode: "yolo", wantBypass: true, wantNoFullAuto: true},
@@ -290,6 +291,7 @@ func TestBuildExecArgs_ResumeUsesSandboxModeConfigOverride(t *testing.T) {
 		wantBypass      bool
 	}{
 		{mode: "suggest", wantSandboxMode: "read-only"},
+		{mode: "read-only", wantSandboxMode: "read-only"},
 		{mode: "auto-edit", wantSandboxMode: "workspace-write"},
 		{mode: "full-auto", wantSandboxMode: "workspace-write"},
 		{mode: "yolo", wantBypass: true},

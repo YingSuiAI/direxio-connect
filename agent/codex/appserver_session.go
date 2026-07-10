@@ -385,6 +385,8 @@ func (s *appServerSession) threadRequestParams() map[string]any {
 
 func appServerModeSettings(mode string) (approval string, sandbox string) {
 	switch normalizeMode(mode) {
+	case "read-only":
+		return "never", "read-only"
 	case "auto-edit", "full-auto":
 		return "never", "workspace-write"
 	case "yolo":
