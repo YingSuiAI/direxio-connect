@@ -438,6 +438,75 @@ func TestAppServerSession_ReadOnlyAutomaticallyApprovesPermissionRequests(t *tes
 	}
 }
 
+func TestAppServerSession_ReadOnlyAutomaticallyApprovesCommandRequests(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stdin := &lockedWriteCloser{}
+	s := &appServerSession{
+		mode:             "read-only",
+		events:           make(chan core.Event, 1),
+		ctx:              ctx,
+		pendingApprovals: make(map[string]chan core.PermissionResult),
+		stdin:            stdin,
+	}
+	s.handleServerRequest(serverRequestProbe(t, `"command-approval-1"`, "item/commandExecution/requestApproval", map[string]any{
+		"command": "git status --short",
+		"cwd":     "/tmp/project",
+	}))
+
+	select {
+	case event := <-s.events:
+		t.Fatalf("read-only mode emitted approval request: %#v", event)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	line := waitForWrittenJSONLine(t, stdin)
+	var envelope struct {
+		JSONRPC string `json:"jsonrpc"`
+		ID      string `json:"id"`
+		Result  struct {
+			Decision string `json:"decision"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(line), &envelope); err != nil {
+		t.Fatalf("decode response %q: %v", line, err)
+	}
+	if envelope.JSONRPC != "2.0" || envelope.ID != "command-approval-1" || envelope.Result.Decision != "accept" {
+		t.Fatalf("approval response = %#v", envelope)
+	}
+}
+
+func TestAppServerSession_SuggestStillRequestsCommandApproval(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stdin := &lockedWriteCloser{}
+	s := &appServerSession{
+		mode:             "suggest",
+		events:           make(chan core.Event, 1),
+		ctx:              ctx,
+		pendingApprovals: make(map[string]chan core.PermissionResult),
+		stdin:            stdin,
+	}
+	s.handleServerRequest(serverRequestProbe(t, `"command-approval-2"`, "item/commandExecution/requestApproval", map[string]any{
+		"command": "git status --short",
+		"cwd":     "/tmp/project",
+	}))
+
+	select {
+	case event := <-s.events:
+		if event.Type != core.EventPermissionRequest || event.RequestID != `"command-approval-2"` || event.ToolName != "Bash" {
+			t.Fatalf("approval event = %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("suggest mode did not emit command approval request")
+	}
+	if stdin.String() != "" {
+		t.Fatalf("suggest mode approved before user input: %q", stdin.String())
+	}
+}
+
 func TestAppServerSession_HandleRequestUserInputWritesCodexResponse(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
