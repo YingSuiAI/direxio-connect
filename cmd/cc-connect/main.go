@@ -209,6 +209,13 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "supervisor" {
+		if err := runSupervisorCommand(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "vnext supervisor: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	checkUpdateAsync()
 
