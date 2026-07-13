@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -86,6 +88,9 @@ var configMu sync.Mutex
 var ConfigPath string
 
 type Config struct {
+	// SchemaVersion 0 is the legacy multi-project Matrix configuration. Version
+	// 2 is the single-project, supervisor-managed Connector configuration.
+	SchemaVersion  uint16 `toml:"schema_version,omitempty"`
 	DataDir        string `toml:"data_dir"` // session store directory, default ~/.cc-connect
 	AttachmentSend string `toml:"attachment_send"`
 	// Quiet is legacy: when true and [display] does not set thinking_messages / tool_messages,
@@ -136,6 +141,69 @@ type Config struct {
 	// (50 MiB). Raise it to send larger files; the request body limit on the
 	// API side scales with this value to account for base64 expansion.
 	MaxAttachmentSizeMB int `toml:"max_attachment_size_mb,omitempty"`
+
+	// The following blocks are only valid for schema_version = 2. Pointers keep
+	// legacy serialization byte-compatible: absent supervisor blocks are not
+	// materialized when an existing schema_version = 0 config is saved.
+	Instance  *InstanceConfig  `toml:"instance,omitempty"`
+	Runtime   *RuntimeConfig   `toml:"runtime,omitempty"`
+	Control   *ControlConfig   `toml:"control,omitempty"`
+	Routing   *RoutingConfig   `toml:"routing,omitempty"`
+	Workspace *WorkspaceConfig `toml:"workspace,omitempty"`
+	Security  *SecurityConfig  `toml:"security,omitempty"`
+	Limits    *LimitsConfig    `toml:"limits,omitempty"`
+}
+
+// InstanceConfig identifies one supervisor-managed Connector instance. The
+// generation and spec revision form part of the server-side fencing boundary.
+type InstanceConfig struct {
+	ID           string `toml:"id"`
+	TenantID     string `toml:"tenant_id"`
+	HostID       string `toml:"host_id"`
+	DisplayName  string `toml:"display_name"`
+	Generation   uint64 `toml:"generation"`
+	SpecRevision uint64 `toml:"spec_revision"`
+}
+
+// RuntimeConfig selects a registered runtime kind and its concrete
+// dirextalk-connect adapter. Arbitrary commands and environment are deliberately
+// not part of this contract.
+type RuntimeConfig struct {
+	Kind    string `toml:"kind"`
+	Adapter string `toml:"adapter"`
+	Profile string `toml:"profile"`
+}
+
+type ControlConfig struct {
+	NodeURL        string `toml:"node_url"`
+	CredentialFile string `toml:"credential_file"`
+	RuntimeDir     string `toml:"runtime_dir"`
+}
+
+type RoutingConfig struct {
+	MaxConcurrentRuns int    `toml:"max_concurrent_runs"`
+	OfflinePolicy     string `toml:"offline_policy"`
+}
+
+type WorkspaceConfig struct {
+	Root string `toml:"root"`
+}
+
+type SecurityConfig struct {
+	PolicyID   string   `toml:"policy_id"`
+	SecretRefs []string `toml:"secret_refs"`
+}
+
+type LimitsConfig struct {
+	MemoryMB        int `toml:"memory_mb"`
+	CPUQuotaPercent int `toml:"cpu_quota_percent"`
+	Processes       int `toml:"processes"`
+}
+
+// SupervisorMode reports whether this config uses the schema-versioned,
+// single-instance control-plane contract.
+func (c *Config) SupervisorMode() bool {
+	return c != nil && c.SchemaVersion == 2
 }
 
 // CronConfig controls cron job behavior.
@@ -625,7 +693,10 @@ func load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	resolveEnvInConfig(cfg)
-	if cfg.DataDir == "" {
+	// Legacy configs keep their historical implicit data directory. Supervisor
+	// configs require an explicit per-instance absolute data directory so two
+	// Connector processes can never silently share state.
+	if cfg.DataDir == "" && !cfg.SupervisorMode() {
 		if home, err := os.UserHomeDir(); err == nil {
 			cfg.DataDir = filepath.Join(home, ".cc-connect")
 		} else {
@@ -996,6 +1067,11 @@ func (c *Config) validate() error {
 }
 
 func (c *Config) validateInternal(permissive bool) error {
+	switch c.SchemaVersion {
+	case 0, 2:
+	default:
+		return fmt.Errorf("config: unsupported schema_version %d", c.SchemaVersion)
+	}
 	if err := validateDisplayConfig("display", &c.Display); err != nil {
 		return err
 	}
@@ -1015,6 +1091,11 @@ func (c *Config) validateInternal(permissive bool) error {
 	if len(c.Projects) == 0 {
 		return fmt.Errorf("config: at least one [[projects]] entry is required")
 	}
+	if c.SupervisorMode() {
+		if err := c.validateSupervisor(); err != nil {
+			return err
+		}
+	}
 	for i, proj := range c.Projects {
 		prefix := fmt.Sprintf("projects[%d]", i)
 		if proj.Name == "" {
@@ -1026,15 +1107,17 @@ func (c *Config) validateInternal(permissive bool) error {
 		if err := core.ValidateMCPOptions(proj.Agent.Options); err != nil {
 			return fmt.Errorf("config: %s.agent.options: %w", prefix, err)
 		}
-		if len(proj.Platforms) == 0 && !permissive {
-			return fmt.Errorf("config: %s needs at least one [[projects.platforms]]", prefix)
-		}
-		for j, p := range proj.Platforms {
-			if p.Type == "" {
-				return fmt.Errorf("config: %s.platforms[%d].type is required", prefix, j)
+		if !c.SupervisorMode() {
+			if len(proj.Platforms) == 0 && !permissive {
+				return fmt.Errorf("config: %s needs at least one [[projects.platforms]]", prefix)
 			}
-			if !strings.EqualFold(strings.TrimSpace(p.Type), "matrix") {
-				return fmt.Errorf("config: %s.platforms[%d].type must be \"matrix\"", prefix, j)
+			for j, p := range proj.Platforms {
+				if p.Type == "" {
+					return fmt.Errorf("config: %s.platforms[%d].type is required", prefix, j)
+				}
+				if !strings.EqualFold(strings.TrimSpace(p.Type), "matrix") {
+					return fmt.Errorf("config: %s.platforms[%d].type must be \"matrix\"", prefix, j)
+				}
 			}
 		}
 		if proj.Mode == "multi-workspace" {
@@ -1065,6 +1148,256 @@ func (c *Config) validateInternal(permissive bool) error {
 		}
 	}
 	return nil
+}
+
+const maxJSONSafeInteger uint64 = 9_007_199_254_740_991
+
+var canonicalUUIDv7Pattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+var supervisorRuntimeAdapters = map[string]string{
+	"codex":        "codex-app-server",
+	"openclaw_acp": "openclaw-acp",
+	"eino":         "eino",
+	"rig":          "rig",
+	"claude_code":  "claude-code",
+	"custom_acp":   "vendor-v1",
+}
+
+var supervisorProjectAgentTypes = map[string]string{
+	"codex":        "codex",
+	"openclaw_acp": "acp",
+	"eino":         "acp",
+	"rig":          "acp",
+	"claude_code":  "claudecode",
+	"custom_acp":   "acp",
+}
+
+var supervisorTokenPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+
+func (c *Config) validateSupervisor() error {
+	if len(c.Projects) != 1 {
+		return fmt.Errorf("config: schema_version 2 requires exactly one [[projects]] entry")
+	}
+	if c.Instance == nil {
+		return fmt.Errorf("config: schema_version 2 requires [instance]")
+	}
+	if c.Runtime == nil {
+		return fmt.Errorf("config: schema_version 2 requires [runtime]")
+	}
+	if c.Control == nil {
+		return fmt.Errorf("config: schema_version 2 requires [control]")
+	}
+	if c.Routing == nil {
+		return fmt.Errorf("config: schema_version 2 requires [routing]")
+	}
+	if c.Workspace == nil {
+		return fmt.Errorf("config: schema_version 2 requires [workspace]")
+	}
+	if c.Security == nil {
+		return fmt.Errorf("config: schema_version 2 requires [security]")
+	}
+	if c.Limits == nil {
+		return fmt.Errorf("config: schema_version 2 requires [limits]")
+	}
+
+	if !canonicalUUIDv7Pattern.MatchString(c.Instance.ID) {
+		return fmt.Errorf("config: instance.id must be a canonical lowercase UUIDv7")
+	}
+	if !canonicalUUIDv7Pattern.MatchString(c.Instance.TenantID) {
+		return fmt.Errorf("config: instance.tenant_id must be a canonical lowercase UUIDv7")
+	}
+	if !canonicalUUIDv7Pattern.MatchString(c.Instance.HostID) {
+		return fmt.Errorf("config: instance.host_id must be a canonical lowercase UUIDv7")
+	}
+	displayName := strings.TrimSpace(c.Instance.DisplayName)
+	if displayName == "" || len(displayName) > 128 {
+		return fmt.Errorf("config: instance.display_name must be between 1 and 128 bytes")
+	}
+	if !isPositiveJSONSafeInteger(c.Instance.Generation) {
+		return fmt.Errorf("config: instance.generation must be a positive JSON-safe integer")
+	}
+	if !isPositiveJSONSafeInteger(c.Instance.SpecRevision) {
+		return fmt.Errorf("config: instance.spec_revision must be a positive JSON-safe integer")
+	}
+
+	runtimeKind := strings.TrimSpace(c.Runtime.Kind)
+	wantAdapter, ok := supervisorRuntimeAdapters[runtimeKind]
+	if !ok {
+		return fmt.Errorf("config: runtime.kind %q is not registered", c.Runtime.Kind)
+	}
+	if c.Runtime.Adapter != wantAdapter {
+		return fmt.Errorf("config: runtime.adapter must be %q for runtime.kind %q", wantAdapter, runtimeKind)
+	}
+	if c.Runtime.Profile != "default" && c.Runtime.Profile != "safe" {
+		return fmt.Errorf("config: runtime.profile must be a registered profile (\"default\" or \"safe\")")
+	}
+
+	nodeURL, err := url.ParseRequestURI(c.Control.NodeURL)
+	if err != nil || nodeURL.Scheme != "https" || nodeURL.Host == "" || nodeURL.User != nil ||
+		nodeURL.Fragment != "" || nodeURL.RawQuery != "" || (nodeURL.Path != "" && nodeURL.Path != "/") {
+		return fmt.Errorf("config: control.node_url must be an origin HTTPS URL without credentials, path, query, or fragment")
+	}
+	credentialFile, ok := normalizedAbsoluteConfigPath(c.Control.CredentialFile)
+	if !ok {
+		return fmt.Errorf("config: control.credential_file must be an absolute path")
+	}
+	runtimeDirectory, ok := normalizedAbsoluteConfigPath(c.Control.RuntimeDir)
+	if !ok {
+		return fmt.Errorf("config: control.runtime_dir must be an absolute Host Supervisor path")
+	}
+	wantCredentialFile := pathpkg.Join(pathpkg.Dir(runtimeDirectory), "credentials", "control.credential")
+	if credentialFile != wantCredentialFile {
+		return fmt.Errorf("config: control.credential_file must be the Host Supervisor credential beside control.runtime_dir")
+	}
+	if strings.HasPrefix(runtimeDirectory, "/") {
+		wantRuntimeDirectory := pathpkg.Join("/run/dirextalk/connect", c.Instance.ID, "worker")
+		if runtimeDirectory != wantRuntimeDirectory {
+			return fmt.Errorf("config: control.runtime_dir must use the registered Linux Connector path template")
+		}
+	} else if pathpkg.Base(runtimeDirectory) != "worker" || pathpkg.Base(pathpkg.Dir(runtimeDirectory)) != c.Instance.ID {
+		return fmt.Errorf("config: control.runtime_dir must be scoped by instance.id")
+	}
+
+	if c.Routing.MaxConcurrentRuns < 1 || c.Routing.MaxConcurrentRuns > 4_096 {
+		return fmt.Errorf("config: routing.max_concurrent_runs must be between 1 and 4096")
+	}
+	switch c.Routing.OfflinePolicy {
+	case "queue", "reject":
+	default:
+		return fmt.Errorf("config: routing.offline_policy must be \"queue\" or \"reject\"")
+	}
+
+	dataDir, ok := normalizedAbsoluteConfigPath(c.DataDir)
+	if !ok {
+		return fmt.Errorf("config: data_dir must be an explicit absolute path in schema_version 2")
+	}
+	workspaceRoot, ok := normalizedAbsoluteConfigPath(c.Workspace.Root)
+	if !ok {
+		return fmt.Errorf("config: workspace.root must be an absolute path")
+	}
+	if configPathsOverlap(dataDir, workspaceRoot) {
+		return fmt.Errorf("config: data_dir and workspace.root must be independent paths")
+	}
+	if configPathsOverlap(dataDir, runtimeDirectory) || configPathsOverlap(workspaceRoot, runtimeDirectory) {
+		return fmt.Errorf("config: control.runtime_dir must be independent from data_dir and workspace.root")
+	}
+	if configPathWithin(dataDir, credentialFile) || configPathWithin(workspaceRoot, credentialFile) {
+		return fmt.Errorf("config: control.credential_file must be outside data_dir and workspace.root")
+	}
+
+	if !supervisorTokenPattern.MatchString(c.Security.PolicyID) {
+		return fmt.Errorf("config: security.policy_id must be a non-empty registered policy name")
+	}
+	if len(c.Security.SecretRefs) == 0 {
+		return fmt.Errorf("config: security.secret_refs must contain at least one secret reference")
+	}
+	seenSecretRefs := make(map[string]struct{}, len(c.Security.SecretRefs))
+	for i, ref := range c.Security.SecretRefs {
+		parsed, err := url.Parse(ref)
+		if err != nil || parsed.Scheme != "secret" || parsed.Host == "" || parsed.Path == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return fmt.Errorf("config: security.secret_refs[%d] must be a secret:// authority/path reference", i)
+		}
+		if _, exists := seenSecretRefs[ref]; exists {
+			return fmt.Errorf("config: security.secret_refs must not contain duplicates")
+		}
+		seenSecretRefs[ref] = struct{}{}
+	}
+
+	if c.Limits.MemoryMB < 128 || c.Limits.MemoryMB > 1_048_576 {
+		return fmt.Errorf("config: limits.memory_mb must be between 128 and 1048576")
+	}
+	if c.Limits.CPUQuotaPercent < 1 || c.Limits.CPUQuotaPercent > 10_000 {
+		return fmt.Errorf("config: limits.cpu_quota_percent must be between 1 and 10000")
+	}
+	if c.Limits.Processes < 16 || c.Limits.Processes > 1_048_576 {
+		return fmt.Errorf("config: limits.processes must be between 16 and 1048576")
+	}
+
+	project := c.Projects[0]
+	if len(c.Providers) != 0 || len(project.Agent.ProviderRefs) != 0 || len(project.Agent.Providers) != 0 {
+		return fmt.Errorf("config: schema_version 2 accepts provider credentials only through security.secret_refs")
+	}
+	if project.RunAsUser != "" || len(project.RunAsEnv) != 0 {
+		return fmt.Errorf("config: schema_version 2 execution identity is controlled by security.policy_id")
+	}
+	if len(project.Platforms) != 0 {
+		for _, platform := range project.Platforms {
+			if strings.EqualFold(strings.TrimSpace(platform.Type), "matrix") {
+				return fmt.Errorf("config: schema_version 2 must not configure a legacy Matrix platform (exclusive cutover required)")
+			}
+		}
+		return fmt.Errorf("config: schema_version 2 must not configure legacy project platforms")
+	}
+	if project.Mode != "" || project.BaseDir != "" {
+		return fmt.Errorf("config: schema_version 2 requires one fixed project workspace")
+	}
+	wantAgentType := supervisorProjectAgentTypes[runtimeKind]
+	if project.Agent.Type != wantAgentType {
+		return fmt.Errorf("config: projects[0].agent.type must be %q for runtime.kind %q", wantAgentType, runtimeKind)
+	}
+	for key := range project.Agent.Options {
+		if key != "work_dir" {
+			return fmt.Errorf("config: projects[0].agent.options.%s is not allowed in schema_version 2", key)
+		}
+	}
+	workDirValue, exists := project.Agent.Options["work_dir"]
+	if !exists {
+		return fmt.Errorf("config: projects[0].agent.options.work_dir is required in schema_version 2")
+	}
+	workDir, isString := workDirValue.(string)
+	if !isString {
+		return fmt.Errorf("config: projects[0].agent.options.work_dir must be an absolute path")
+	}
+	normalizedWorkDir, ok := normalizedAbsoluteConfigPath(workDir)
+	if !ok {
+		return fmt.Errorf("config: projects[0].agent.options.work_dir must be an absolute path")
+	}
+	if !configPathWithin(workspaceRoot, normalizedWorkDir) {
+		return fmt.Errorf("config: projects[0].agent.options.work_dir must equal or be inside workspace.root")
+	}
+
+	return nil
+}
+
+func isPositiveJSONSafeInteger(value uint64) bool {
+	return value >= 1 && value <= maxJSONSafeInteger
+}
+
+// normalizedAbsoluteConfigPath accepts the host's native absolute path syntax
+// and POSIX absolute paths. The latter keeps Linux supervisor configs
+// verifiable by Windows management tooling without weakening containment.
+func normalizedAbsoluteConfigPath(value string) (string, bool) {
+	if value == "" || value != strings.TrimSpace(value) || strings.ContainsRune(value, '\x00') {
+		return "", false
+	}
+	if strings.HasPrefix(value, "/") {
+		if strings.Contains(value, `\`) {
+			return "", false
+		}
+		return pathpkg.Clean(value), true
+	}
+	if !filepath.IsAbs(value) {
+		return "", false
+	}
+	cleaned := filepath.ToSlash(filepath.Clean(value))
+	if runtime.GOOS == "windows" {
+		cleaned = strings.ToLower(cleaned)
+	}
+	return cleaned, true
+}
+
+func configPathWithin(root, candidate string) bool {
+	if root == candidate {
+		return true
+	}
+	if strings.HasSuffix(root, "/") {
+		return strings.HasPrefix(candidate, root)
+	}
+	return strings.HasPrefix(candidate, root+"/")
+}
+
+func configPathsOverlap(left, right string) bool {
+	return configPathWithin(left, right) || configPathWithin(right, left)
 }
 
 func validateDisplayConfig(prefix string, display *DisplayConfig) error {

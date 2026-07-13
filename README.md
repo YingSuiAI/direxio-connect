@@ -1,8 +1,8 @@
 # dirextalk-connect
 
-Dirextalk-only Matrix bridge for connecting a local coding agent to the current Dirextalk agent room.
+Dirextalk bridge for connecting local coding agents to the current Dirextalk system.
 
-This fork keeps the cc-connect agent runtime and Matrix transport, and removes the upstream multi-platform chat integrations. Dirextalk deployment should create a Matrix session for the local `@agent:<server>` user, write a Matrix-only config, and run `dirextalk-connect` against the real `agent_room_id`.
+Legacy schema-v0 configurations keep the Matrix Agent-room bridge. The new schema-v2 [vNext Supervisor mode](docs/vnext-supervisor.md) runs one isolated outbound Connector control stream per process and structurally disables the legacy Matrix consumer.
 
 The binary is agent-backend neutral. Release builds include all supported local coding agent backends, including ACP-compatible agents, Claude Code, Codex, Gemini, Cursor, Copilot, Qoder, OpenCode, and similar runtimes already present in this repository.
 

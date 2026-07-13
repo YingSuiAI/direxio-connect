@@ -367,6 +367,26 @@ func main() {
 		os.Exit(1)
 	}
 
+	if cfg.SupervisorMode() {
+		supervisorContext, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		err := runVNextSupervisor(supervisorContext, cfg)
+		stopSignals()
+		if err != nil {
+			slog.Error("vnext connector stopped", "error", err)
+		} else {
+			slog.Info("vnext connector stopped")
+		}
+		if logCloser != nil {
+			_ = logCloser.Close()
+		}
+		instanceLock.Release()
+		if err != nil {
+			cleanupPIDFile()
+			os.Exit(1)
+		}
+		return
+	}
+
 	engines := make([]*core.Engine, 0, len(cfg.Projects))
 	effectiveWorkDirs := make([]string, 0, len(cfg.Projects))
 
