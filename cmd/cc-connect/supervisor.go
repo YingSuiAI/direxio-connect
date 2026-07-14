@@ -31,6 +31,7 @@ func runVNextSupervisor(ctx context.Context, cfg *config.Config) error {
 		cfg.Instance.TenantID,
 		cfg.Instance.ID,
 		cfg.Instance.Generation,
+		cfg.Instance.SpecRevision,
 		cfg.Control.NodeURL,
 	)
 	if err != nil {

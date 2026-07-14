@@ -141,7 +141,7 @@ func TestEnrollConnectorRetriesExactRequestAndBuildsLoadableCredential(t *testin
 		t.Fatal("retry changed the signed enrollment request")
 	}
 	credential, err := validateControlCredentialDocument(
-		credentialJSON, options.TenantID, options.ConnectorID, options.Generation, options.ControlURL,
+		credentialJSON, options.TenantID, options.ConnectorID, options.Generation, options.SpecRevision, options.ControlURL,
 	)
 	if err != nil {
 		t.Fatalf("generated credential did not pass supervisor loader: %v", err)

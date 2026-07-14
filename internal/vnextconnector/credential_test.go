@@ -25,6 +25,8 @@ import (
 
 const testNodeURL = "https://control.example.com:8443"
 
+const testSpecRevision uint64 = 11
+
 func TestLoadControlCredentialBuildsStrictTLSConfig(t *testing.T) {
 	fixture := writeControlCredentialFixtureForSchema(
 		t,
@@ -39,6 +41,7 @@ func TestLoadControlCredentialBuildsStrictTLSConfig(t *testing.T) {
 		testTenantID,
 		testConnectorID,
 		7,
+		testSpecRevision,
 		testNodeURL,
 	)
 	if err != nil {
@@ -47,7 +50,7 @@ func TestLoadControlCredentialBuildsStrictTLSConfig(t *testing.T) {
 	if credential.SchemaVersion != ControlCredentialSchemaVersionV2 || credential.TenantID != testTenantID || credential.ConnectorID != testConnectorID {
 		t.Fatalf("credential identity = %+v", credential)
 	}
-	if credential.Generation != 7 || credential.CredentialRevision != 11 {
+	if credential.Generation != 7 || credential.CredentialRevision != testSpecRevision {
 		t.Fatalf("credential fence = generation %d revision %d", credential.Generation, credential.CredentialRevision)
 	}
 
@@ -98,6 +101,40 @@ func TestLoadControlCredentialBuildsStrictTLSConfig(t *testing.T) {
 	}
 }
 
+func TestLoadControlCredentialRejectsStaleSchemaV2Revision(t *testing.T) {
+	fixture := writeControlCredentialFixtureForSchema(
+		t,
+		ControlCredentialSchemaVersionV2,
+		credentialCertificateOptions{},
+		nil,
+		"",
+	)
+	if _, err := LoadControlCredential(
+		fixture.path,
+		testTenantID,
+		testConnectorID,
+		7,
+		testSpecRevision+1,
+		testNodeURL,
+	); err == nil {
+		t.Fatal("LoadControlCredential accepted a schema-v2 credential from an older spec revision")
+	}
+	encoded, err := os.ReadFile(fixture.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validateControlCredentialDocument(
+		encoded,
+		testTenantID,
+		testConnectorID,
+		7,
+		testSpecRevision+1,
+		testNodeURL,
+	); err == nil {
+		t.Fatal("in-memory schema-v2 validator accepted a credential from an older spec revision")
+	}
+}
+
 func TestLoadControlCredentialSupportsLegacySchemaV1SingleRoot(t *testing.T) {
 	fixture := writeControlCredentialFixtureForSchema(
 		t,
@@ -107,7 +144,7 @@ func TestLoadControlCredentialSupportsLegacySchemaV1SingleRoot(t *testing.T) {
 		"",
 	)
 
-	credential, err := LoadControlCredential(
+	credential, err := LoadLegacyControlCredentialForMigration(
 		fixture.path,
 		testTenantID,
 		testConnectorID,
@@ -115,13 +152,49 @@ func TestLoadControlCredentialSupportsLegacySchemaV1SingleRoot(t *testing.T) {
 		testNodeURL,
 	)
 	if err != nil {
-		t.Fatalf("LoadControlCredential legacy v1: %v", err)
+		t.Fatalf("LoadLegacyControlCredentialForMigration: %v", err)
 	}
 	if credential.SchemaVersion != ControlCredentialSchemaVersionV1 {
 		t.Fatalf("schema version = %d, want legacy v1", credential.SchemaVersion)
 	}
 	if !certificatePoolContainsSubject(credential.TLSConfig().RootCAs, fixture.connectorIssuerRoot) {
 		t.Fatal("legacy single root was not retained for v1 TLS compatibility")
+	}
+}
+
+func TestLoadControlCredentialRejectsLegacySchemaV1ByDefault(t *testing.T) {
+	fixture := writeControlCredentialFixtureForSchema(
+		t,
+		ControlCredentialSchemaVersionV1,
+		credentialCertificateOptions{},
+		nil,
+		"",
+	)
+	if _, err := LoadControlCredential(
+		fixture.path,
+		testTenantID,
+		testConnectorID,
+		7,
+		testSpecRevision,
+		testNodeURL,
+	); err == nil {
+		t.Fatal("default schema-v2 loader accepted a legacy credential")
+	}
+	v2Fixture := writeControlCredentialFixtureForSchema(
+		t,
+		ControlCredentialSchemaVersionV2,
+		credentialCertificateOptions{},
+		nil,
+		"",
+	)
+	if _, err := LoadLegacyControlCredentialForMigration(
+		v2Fixture.path,
+		testTenantID,
+		testConnectorID,
+		7,
+		testNodeURL,
+	); err == nil {
+		t.Fatal("legacy migration loader accepted a schema-v2 credential")
 	}
 }
 
@@ -145,8 +218,64 @@ func TestLoadControlCredentialRejectsCrossSchemaTrustFields(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := writeControlCredentialFixtureForSchema(t, test.schema, credentialCertificateOptions{}, test.mutate, "")
-			if _, err := LoadControlCredential(fixture.path, testTenantID, testConnectorID, 7, testNodeURL); err == nil {
+			var err error
+			if test.schema == ControlCredentialSchemaVersionV1 {
+				_, err = LoadLegacyControlCredentialForMigration(fixture.path, testTenantID, testConnectorID, 7, testNodeURL)
+			} else {
+				_, err = LoadControlCredential(fixture.path, testTenantID, testConnectorID, 7, testSpecRevision, testNodeURL)
+			}
+			if err == nil {
 				t.Fatal("LoadControlCredential accepted fields from another credential schema")
+			}
+		})
+	}
+}
+
+func TestLoadControlCredentialRejectsCaseInsensitiveTopLevelAliases(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func([]byte) []byte
+	}{
+		{
+			name: "schema version alias",
+			mutate: func(encoded []byte) []byte {
+				return bytes.Replace(encoded, []byte(`"schema_version":2`), []byte(`"Schema_Version":2`), 1)
+			},
+		},
+		{
+			name: "server name alias",
+			mutate: func(encoded []byte) []byte {
+				return bytes.Replace(encoded, []byte(`"server_name"`), []byte(`"Server_Name"`), 1)
+			},
+		},
+		{
+			name: "server name exact and alias",
+			mutate: func(encoded []byte) []byte {
+				return bytes.Replace(
+					encoded,
+					[]byte(`"server_name":"control.example.com"`),
+					[]byte(`"server_name":"control.example.com","Server_Name":"control.example.com"`),
+					1,
+				)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := writeControlCredentialFixture(t, credentialCertificateOptions{}, nil, "")
+			encoded, err := os.ReadFile(fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mutated := test.mutate(encoded)
+			if bytes.Equal(mutated, encoded) {
+				t.Fatal("test mutation did not change the credential document")
+			}
+			if err := os.WriteFile(fixture, mutated, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadControlCredential(fixture, testTenantID, testConnectorID, 7, testSpecRevision, testNodeURL); err == nil {
+				t.Fatal("LoadControlCredential accepted a case-insensitive top-level field alias")
 			}
 		})
 	}
@@ -185,7 +314,7 @@ func TestLoadControlCredentialRejectsUntrustedContent(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			path := writeControlCredentialFixture(t, test.options, test.mutate, test.suffix)
-			if _, err := LoadControlCredential(path, testTenantID, testConnectorID, 7, testNodeURL); err == nil {
+			if _, err := LoadControlCredential(path, testTenantID, testConnectorID, 7, testSpecRevision, testNodeURL); err == nil {
 				t.Fatal("LoadControlCredential succeeded, want rejection")
 			}
 		})
@@ -200,7 +329,7 @@ func TestLoadControlCredentialRejectsUntrustedContent(t *testing.T) {
 	if err := os.WriteFile(duplicatePath, encoded, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadControlCredential(duplicatePath, testTenantID, testConnectorID, 7, testNodeURL); err == nil {
+	if _, err := LoadControlCredential(duplicatePath, testTenantID, testConnectorID, 7, testSpecRevision, testNodeURL); err == nil {
 		t.Fatal("duplicate credential JSON field accepted")
 	}
 }
@@ -210,7 +339,7 @@ func TestLoadControlCredentialRejectsUnsafeFiles(t *testing.T) {
 	if err := os.WriteFile(oversize, make([]byte, 64*1024+1), 0o600); err != nil {
 		t.Fatalf("write oversize credential: %v", err)
 	}
-	if _, err := LoadControlCredential(oversize, testTenantID, testConnectorID, 7, testNodeURL); err == nil {
+	if _, err := LoadControlCredential(oversize, testTenantID, testConnectorID, 7, testSpecRevision, testNodeURL); err == nil {
 		t.Fatal("oversize credential accepted")
 	}
 
@@ -220,14 +349,14 @@ func TestLoadControlCredentialRejectsUnsafeFiles(t *testing.T) {
 		if err := os.Symlink(target, link); err != nil {
 			t.Fatalf("create credential symlink: %v", err)
 		}
-		if _, err := LoadControlCredential(link, testTenantID, testConnectorID, 7, testNodeURL); err == nil {
+		if _, err := LoadControlCredential(link, testTenantID, testConnectorID, 7, testSpecRevision, testNodeURL); err == nil {
 			t.Fatal("credential symlink accepted")
 		}
 
 		if err := os.Chmod(target, 0o644); err != nil {
 			t.Fatalf("chmod credential: %v", err)
 		}
-		if _, err := LoadControlCredential(target, testTenantID, testConnectorID, 7, testNodeURL); err == nil {
+		if _, err := LoadControlCredential(target, testTenantID, testConnectorID, 7, testSpecRevision, testNodeURL); err == nil {
 			t.Fatal("world-readable credential accepted")
 		}
 	}

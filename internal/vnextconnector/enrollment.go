@@ -427,6 +427,7 @@ func buildEnrollmentCredentialDocument(
 		options.TenantID,
 		options.ConnectorID,
 		options.Generation,
+		options.SpecRevision,
 		options.ControlURL,
 	)
 	if err != nil {

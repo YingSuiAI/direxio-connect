@@ -119,10 +119,6 @@ type controlCredentialJSONV2 struct {
 	LeafFingerprintSHA256    string `json:"leaf_fingerprint_sha256"`
 }
 
-type controlCredentialSchemaEnvelope struct {
-	SchemaVersion uint16 `json:"schema_version"`
-}
-
 type controlCredentialWire struct {
 	SchemaVersion            uint16
 	TenantID                 string
@@ -147,19 +143,61 @@ func (wire *controlCredentialWire) clear() {
 	wire.PrivateKeyPEM = ""
 }
 
-// LoadControlCredential reads and authenticates one bounded credential file
-// against the expected process identity, generation, and control node.
+// LoadControlCredential reads the schema-v2 credential used by the normal
+// supervisor path. Its revision must exactly match the configured spec fence.
 func LoadControlCredential(
+	path string,
+	expectedTenantID string,
+	expectedConnectorID string,
+	expectedGeneration uint64,
+	expectedSpecRevision uint64,
+	nodeURL string,
+) (*ControlCredential, error) {
+	return loadControlCredential(
+		path,
+		expectedTenantID,
+		expectedConnectorID,
+		expectedGeneration,
+		expectedSpecRevision,
+		nodeURL,
+		ControlCredentialSchemaVersionV2,
+	)
+}
+
+// LoadLegacyControlCredentialForMigration is the only explicit compatibility
+// path for a schema-v1 credential. The schema-v2 supervisor must not call it.
+func LoadLegacyControlCredentialForMigration(
 	path string,
 	expectedTenantID string,
 	expectedConnectorID string,
 	expectedGeneration uint64,
 	nodeURL string,
 ) (*ControlCredential, error) {
+	return loadControlCredential(
+		path,
+		expectedTenantID,
+		expectedConnectorID,
+		expectedGeneration,
+		0,
+		nodeURL,
+		ControlCredentialSchemaVersionV1,
+	)
+}
+
+func loadControlCredential(
+	path string,
+	expectedTenantID string,
+	expectedConnectorID string,
+	expectedGeneration uint64,
+	expectedSpecRevision uint64,
+	nodeURL string,
+	expectedSchemaVersion uint16,
+) (*ControlCredential, error) {
 	if !controlCredentialUUIDv7Pattern.MatchString(expectedTenantID) ||
 		!controlCredentialUUIDv7Pattern.MatchString(expectedConnectorID) ||
-		!isPositiveJSONSafeCredentialInteger(expectedGeneration) {
-		return nil, invalidControlCredential("expected identity or generation")
+		!isPositiveJSONSafeCredentialInteger(expectedGeneration) ||
+		(expectedSchemaVersion == ControlCredentialSchemaVersionV2 && !isPositiveJSONSafeCredentialInteger(expectedSpecRevision)) {
+		return nil, invalidControlCredential("expected identity, generation, or spec revision")
 	}
 	if _, err := validatedControlNodeServerName(nodeURL); err != nil {
 		return nil, err
@@ -169,29 +207,54 @@ func LoadControlCredential(
 		return nil, err
 	}
 	defer clear(contents)
-	return validateControlCredentialDocument(
+	return validateControlCredentialDocumentForSchema(
 		contents,
 		expectedTenantID,
 		expectedConnectorID,
 		expectedGeneration,
+		expectedSpecRevision,
 		nodeURL,
+		expectedSchemaVersion,
 	)
 }
 
 // validateControlCredentialDocument is the shared in-memory half of the
-// supervisor loader. Enrollment calls it before emitting generated credential
-// bytes, while LoadControlCredential retains the filesystem safety boundary.
+// schema-v2 supervisor loader. Enrollment calls it before emitting generated
+// credential bytes, while LoadControlCredential retains the filesystem safety
+// boundary.
 func validateControlCredentialDocument(
 	contents []byte,
 	expectedTenantID string,
 	expectedConnectorID string,
 	expectedGeneration uint64,
+	expectedSpecRevision uint64,
 	nodeURL string,
+) (*ControlCredential, error) {
+	return validateControlCredentialDocumentForSchema(
+		contents,
+		expectedTenantID,
+		expectedConnectorID,
+		expectedGeneration,
+		expectedSpecRevision,
+		nodeURL,
+		ControlCredentialSchemaVersionV2,
+	)
+}
+
+func validateControlCredentialDocumentForSchema(
+	contents []byte,
+	expectedTenantID string,
+	expectedConnectorID string,
+	expectedGeneration uint64,
+	expectedSpecRevision uint64,
+	nodeURL string,
+	expectedSchemaVersion uint16,
 ) (*ControlCredential, error) {
 	if !controlCredentialUUIDv7Pattern.MatchString(expectedTenantID) ||
 		!controlCredentialUUIDv7Pattern.MatchString(expectedConnectorID) ||
-		!isPositiveJSONSafeCredentialInteger(expectedGeneration) {
-		return nil, invalidControlCredential("expected identity or generation")
+		!isPositiveJSONSafeCredentialInteger(expectedGeneration) ||
+		(expectedSchemaVersion == ControlCredentialSchemaVersionV2 && !isPositiveJSONSafeCredentialInteger(expectedSpecRevision)) {
+		return nil, invalidControlCredential("expected identity, generation, or spec revision")
 	}
 	nodeServerName, err := validatedControlNodeServerName(nodeURL)
 	if err != nil {
@@ -209,7 +272,7 @@ func validateControlCredentialDocument(
 	}
 	defer wire.clear()
 
-	if (wire.SchemaVersion != ControlCredentialSchemaVersionV1 && wire.SchemaVersion != ControlCredentialSchemaVersionV2) ||
+	if wire.SchemaVersion != expectedSchemaVersion ||
 		!controlCredentialUUIDv7Pattern.MatchString(wire.TenantID) ||
 		!controlCredentialUUIDv7Pattern.MatchString(wire.ConnectorID) ||
 		wire.TenantID != expectedTenantID ||
@@ -218,6 +281,9 @@ func validateControlCredentialDocument(
 		!isPositiveJSONSafeCredentialInteger(wire.Generation) ||
 		!isPositiveJSONSafeCredentialInteger(wire.CredentialRevision) {
 		return nil, invalidControlCredential("schema, identity, or fence")
+	}
+	if expectedSchemaVersion == ControlCredentialSchemaVersionV2 && wire.CredentialRevision != expectedSpecRevision {
+		return nil, invalidControlCredential("credential revision does not match spec revision")
 	}
 	if wire.ServerName != nodeServerName {
 		return nil, invalidControlCredential("server_name does not match control node")
@@ -321,20 +387,12 @@ func validateControlCredentialDocument(
 // document, then decodes against that schema's exact field set. In particular,
 // v2 cannot silently inherit the legacy shared root field.
 func decodeControlCredentialDocument(contents []byte) (controlCredentialWire, error) {
-	if err := validateUniqueJSONFields(contents); err != nil {
-		return controlCredentialWire{}, invalidControlCredential("duplicate or malformed JSON field")
-	}
-
-	var envelope controlCredentialSchemaEnvelope
-	decoder := json.NewDecoder(bytes.NewReader(contents))
-	if err := decoder.Decode(&envelope); err != nil {
-		return controlCredentialWire{}, invalidControlCredential("JSON document")
-	}
-	if err := requireJSONEOF(decoder); err != nil {
+	schemaVersion, err := validateControlCredentialTopLevelFields(contents)
+	if err != nil {
 		return controlCredentialWire{}, err
 	}
 
-	switch envelope.SchemaVersion {
+	switch schemaVersion {
 	case ControlCredentialSchemaVersionV1:
 		var legacy controlCredentialJSONV1
 		if err := decodeStrictControlCredentialJSON(contents, &legacy); err != nil {
@@ -374,6 +432,60 @@ func decodeControlCredentialDocument(contents []byte) (controlCredentialWire, er
 	default:
 		return controlCredentialWire{}, invalidControlCredential("unsupported schema version")
 	}
+}
+
+// validateControlCredentialTopLevelFields runs before any struct decoder.
+// encoding/json accepts case-insensitive struct field matches even with
+// DisallowUnknownFields, so schema-specific exact names are required here.
+func validateControlCredentialTopLevelFields(contents []byte) (uint16, error) {
+	if err := validateUniqueJSONFields(contents); err != nil {
+		return 0, invalidControlCredential("duplicate or malformed JSON field")
+	}
+
+	var fields map[string]json.RawMessage
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	if err := decoder.Decode(&fields); err != nil {
+		return 0, invalidControlCredential("JSON document")
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return 0, err
+	}
+	if fields == nil {
+		return 0, invalidControlCredential("JSON document")
+	}
+	schemaRaw, found := fields["schema_version"]
+	if !found {
+		return 0, invalidControlCredential("missing schema_version")
+	}
+	var schemaVersion uint16
+	if err := json.Unmarshal(schemaRaw, &schemaVersion); err != nil {
+		return 0, invalidControlCredential("schema_version")
+	}
+	for field := range fields {
+		if !isControlCredentialTopLevelField(schemaVersion, field) {
+			return 0, invalidControlCredential("unknown or cross-schema JSON field")
+		}
+	}
+	return schemaVersion, nil
+}
+
+func isControlCredentialTopLevelField(schemaVersion uint16, field string) bool {
+	switch schemaVersion {
+	case ControlCredentialSchemaVersionV1:
+		switch field {
+		case "schema_version", "tenant_id", "connector_id", "generation", "credential_revision", "server_name",
+			"root_ca_pem", "certificate_chain_pem", "private_key_pem", "leaf_fingerprint_sha256":
+			return true
+		}
+	case ControlCredentialSchemaVersionV2:
+		switch field {
+		case "schema_version", "tenant_id", "connector_id", "generation", "credential_revision", "server_name",
+			"server_root_ca_pem", "connector_issuer_root_ca_pem", "certificate_chain_pem", "private_key_pem",
+			"leaf_fingerprint_sha256":
+			return true
+		}
+	}
+	return false
 }
 
 func decodeStrictControlCredentialJSON(contents []byte, destination any) error {

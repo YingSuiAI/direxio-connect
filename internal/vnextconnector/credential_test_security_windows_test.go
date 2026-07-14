@@ -80,7 +80,7 @@ func TestLoadControlCredentialRejectsBroadWindowsDACL(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadControlCredential(path, testTenantID, testConnectorID, 7, testNodeURL); err == nil {
+	if _, err := LoadControlCredential(path, testTenantID, testConnectorID, 7, testSpecRevision, testNodeURL); err == nil {
 		t.Fatal("credential with world-readable Windows DACL accepted")
 	}
 }

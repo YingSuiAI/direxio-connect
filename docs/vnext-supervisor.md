@@ -115,8 +115,9 @@ Schema v2 is the only writable enrollment output. `server_root_ca_pem` is used
 only to authenticate the control server during TLS, while
 `connector_issuer_root_ca_pem` is used only to verify the Connector's client
 certificate chain. Their pools are never merged. Legacy schema-v1 credentials
-with one `root_ca_pem` remain readable only for compatibility and map that
-single root to both roles.
+with one `root_ca_pem` are accepted only by the explicit migration loader; the
+normal schema-v2 supervisor rejects them. That legacy path maps the single root
+to both roles only for migration compatibility.
 
 `dirextalk-connect enroll` requires one exact lowercase SHA-256 pin alongside
 each CA input: `--enrollment-root-ca-sha256`,
@@ -125,7 +126,8 @@ each CA input: `--enrollment-root-ca-sha256`,
 verifies its raw bytes against the pin before TLS or credential processing, and
 then passes only those verified bytes onward. A successful enrollment response
 must carry `credential_revision == spec_revision` before its credential is
-written.
+written, and the schema-v2 supervisor checks the same equality again against
+its configured `instance.spec_revision` before opening the control stream.
 
 The leaf URI is exactly:
 
