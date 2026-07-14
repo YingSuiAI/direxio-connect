@@ -81,9 +81,13 @@ func parseEnrollInvocation(args []string) (vnextconnector.EnrollmentOptions, err
 	flags.StringVar(&options.EnrollmentURL, "enrollment-url", "", "")
 	flags.StringVar(&options.EnrollmentServerName, "enrollment-server-name", "", "")
 	flags.StringVar(&options.EnrollmentRootCAFile, "enrollment-root-ca-file", "", "")
+	flags.StringVar(&options.EnrollmentRootCASHA256, "enrollment-root-ca-sha256", "", "")
 	flags.StringVar(&options.ControlURL, "control-url", "", "")
 	flags.StringVar(&options.ControlServerName, "control-server-name", "", "")
-	flags.StringVar(&options.ControlRootCAFile, "control-root-ca-file", "", "")
+	flags.StringVar(&options.ControlServerRootCAFile, "control-server-root-ca-file", "", "")
+	flags.StringVar(&options.ControlServerRootCASHA256, "control-server-root-ca-sha256", "", "")
+	flags.StringVar(&options.ConnectorIssuerRootCAFile, "connector-issuer-root-ca-file", "", "")
+	flags.StringVar(&options.ConnectorIssuerRootCASHA256, "connector-issuer-root-ca-sha256", "", "")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return vnextconnector.EnrollmentOptions{}, errors.New("invalid closed enrollment arguments")
 	}

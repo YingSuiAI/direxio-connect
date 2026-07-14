@@ -23,11 +23,17 @@ import (
 )
 
 const (
-	ControlCredentialSchemaVersion uint16 = 1
-	MaxControlCredentialBytes             = 64 * 1024
-	maxJSONSafeCredentialInteger   uint64 = 9_007_199_254_740_991
-	maxControlCertificateBytes            = 16 * 1024
-	maxControlCertificateChain            = 4
+	// ControlCredentialSchemaVersionV1 is a read-only legacy format where one
+	// root was used for both control-server TLS and Connector certificate
+	// issuance. New enrollment must never emit this format.
+	ControlCredentialSchemaVersionV1 uint16 = 1
+	// ControlCredentialSchemaVersionV2 separates the server-authentication and
+	// Connector-certificate issuer trust roots.
+	ControlCredentialSchemaVersionV2 uint16 = 2
+	MaxControlCredentialBytes               = 64 * 1024
+	maxJSONSafeCredentialInteger     uint64 = 9_007_199_254_740_991
+	maxControlCertificateBytes              = 16 * 1024
+	maxControlCertificateChain              = 4
 )
 
 var (
@@ -86,7 +92,7 @@ func (credential *ControlCredential) GoString() string {
 	return credential.String()
 }
 
-type controlCredentialJSON struct {
+type controlCredentialJSONV1 struct {
 	SchemaVersion         uint16 `json:"schema_version"`
 	TenantID              string `json:"tenant_id"`
 	ConnectorID           string `json:"connector_id"`
@@ -97,6 +103,48 @@ type controlCredentialJSON struct {
 	CertificateChainPEM   string `json:"certificate_chain_pem"`
 	PrivateKeyPEM         string `json:"private_key_pem"`
 	LeafFingerprintSHA256 string `json:"leaf_fingerprint_sha256"`
+}
+
+type controlCredentialJSONV2 struct {
+	SchemaVersion            uint16 `json:"schema_version"`
+	TenantID                 string `json:"tenant_id"`
+	ConnectorID              string `json:"connector_id"`
+	Generation               uint64 `json:"generation"`
+	CredentialRevision       uint64 `json:"credential_revision"`
+	ServerName               string `json:"server_name"`
+	ServerRootCAPEM          string `json:"server_root_ca_pem"`
+	ConnectorIssuerRootCAPEM string `json:"connector_issuer_root_ca_pem"`
+	CertificateChainPEM      string `json:"certificate_chain_pem"`
+	PrivateKeyPEM            string `json:"private_key_pem"`
+	LeafFingerprintSHA256    string `json:"leaf_fingerprint_sha256"`
+}
+
+type controlCredentialSchemaEnvelope struct {
+	SchemaVersion uint16 `json:"schema_version"`
+}
+
+type controlCredentialWire struct {
+	SchemaVersion            uint16
+	TenantID                 string
+	ConnectorID              string
+	Generation               uint64
+	CredentialRevision       uint64
+	ServerName               string
+	ServerRootCAPEM          string
+	ConnectorIssuerRootCAPEM string
+	CertificateChainPEM      string
+	PrivateKeyPEM            string
+	LeafFingerprintSHA256    string
+}
+
+func (wire *controlCredentialWire) clear() {
+	if wire == nil {
+		return
+	}
+	wire.ServerRootCAPEM = ""
+	wire.ConnectorIssuerRootCAPEM = ""
+	wire.CertificateChainPEM = ""
+	wire.PrivateKeyPEM = ""
 }
 
 // LoadControlCredential reads and authenticates one bounded credential file
@@ -155,26 +203,13 @@ func validateControlCredentialDocument(
 	if !utf8.Valid(contents) {
 		return nil, invalidControlCredential("JSON is not valid UTF-8")
 	}
-	if err := validateUniqueJSONFields(contents); err != nil {
-		return nil, invalidControlCredential("duplicate or malformed JSON field")
-	}
-
-	var wire controlCredentialJSON
-	decoder := json.NewDecoder(bytes.NewReader(contents))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&wire); err != nil {
-		return nil, invalidControlCredential("JSON document")
-	}
-	if err := requireJSONEOF(decoder); err != nil {
+	wire, err := decodeControlCredentialDocument(contents)
+	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		wire.RootCAPEM = ""
-		wire.CertificateChainPEM = ""
-		wire.PrivateKeyPEM = ""
-	}()
+	defer wire.clear()
 
-	if wire.SchemaVersion != ControlCredentialSchemaVersion ||
+	if (wire.SchemaVersion != ControlCredentialSchemaVersionV1 && wire.SchemaVersion != ControlCredentialSchemaVersionV2) ||
 		!controlCredentialUUIDv7Pattern.MatchString(wire.TenantID) ||
 		!controlCredentialUUIDv7Pattern.MatchString(wire.ConnectorID) ||
 		wire.TenantID != expectedTenantID ||
@@ -188,9 +223,13 @@ func validateControlCredentialDocument(
 		return nil, invalidControlCredential("server_name does not match control node")
 	}
 
-	rootCertificates, err := parseStrictCertificatePEM(wire.RootCAPEM)
+	serverRootCertificates, err := parseStrictCertificatePEM(wire.ServerRootCAPEM)
 	if err != nil {
-		return nil, invalidControlCredential("root_ca_pem")
+		return nil, invalidControlCredential("server root CA")
+	}
+	connectorIssuerRootCertificates, err := parseStrictCertificatePEM(wire.ConnectorIssuerRootCAPEM)
+	if err != nil {
+		return nil, invalidControlCredential("connector issuer root CA")
 	}
 	chainCertificates, err := parseStrictCertificatePEM(wire.CertificateChainPEM)
 	if err != nil {
@@ -212,12 +251,13 @@ func validateControlCredentialDocument(
 		return nil, err
 	}
 
-	roots := x509.NewCertPool()
-	for _, certificate := range rootCertificates {
-		if !certificate.IsCA || !certificate.BasicConstraintsValid || certificate.KeyUsage&x509.KeyUsageCertSign == 0 {
-			return nil, invalidControlCredential("root_ca_pem contains a non-CA certificate")
-		}
-		roots.AddCert(certificate)
+	serverRoots, err := controlCredentialCAPool(serverRootCertificates, "server root CA")
+	if err != nil {
+		return nil, err
+	}
+	connectorIssuerRoots, err := controlCredentialCAPool(connectorIssuerRootCertificates, "connector issuer root CA")
+	if err != nil {
+		return nil, err
 	}
 	intermediates := x509.NewCertPool()
 	for _, certificate := range chainCertificates[1:] {
@@ -231,7 +271,7 @@ func validateControlCredentialDocument(
 		return nil, invalidControlCredential("certificate validity")
 	}
 	if _, err := leaf.Verify(x509.VerifyOptions{
-		Roots:         roots,
+		Roots:         connectorIssuerRoots,
 		Intermediates: intermediates,
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		CurrentTime:   now,
@@ -261,7 +301,7 @@ func validateControlCredentialDocument(
 		MinVersion:   tls.VersionTLS13,
 		MaxVersion:   tls.VersionTLS13,
 		ServerName:   wire.ServerName,
-		RootCAs:      roots,
+		RootCAs:      serverRoots,
 		Certificates: []tls.Certificate{keyPair},
 		NextProtos:   []string{"h2"},
 	}
@@ -275,6 +315,85 @@ func validateControlCredentialDocument(
 		ServerName:         wire.ServerName,
 		tlsConfig:          tlsConfig,
 	}, nil
+}
+
+// decodeControlCredentialDocument selects the schema from a duplicate-free
+// document, then decodes against that schema's exact field set. In particular,
+// v2 cannot silently inherit the legacy shared root field.
+func decodeControlCredentialDocument(contents []byte) (controlCredentialWire, error) {
+	if err := validateUniqueJSONFields(contents); err != nil {
+		return controlCredentialWire{}, invalidControlCredential("duplicate or malformed JSON field")
+	}
+
+	var envelope controlCredentialSchemaEnvelope
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	if err := decoder.Decode(&envelope); err != nil {
+		return controlCredentialWire{}, invalidControlCredential("JSON document")
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return controlCredentialWire{}, err
+	}
+
+	switch envelope.SchemaVersion {
+	case ControlCredentialSchemaVersionV1:
+		var legacy controlCredentialJSONV1
+		if err := decodeStrictControlCredentialJSON(contents, &legacy); err != nil {
+			return controlCredentialWire{}, err
+		}
+		return controlCredentialWire{
+			SchemaVersion:            legacy.SchemaVersion,
+			TenantID:                 legacy.TenantID,
+			ConnectorID:              legacy.ConnectorID,
+			Generation:               legacy.Generation,
+			CredentialRevision:       legacy.CredentialRevision,
+			ServerName:               legacy.ServerName,
+			ServerRootCAPEM:          legacy.RootCAPEM,
+			ConnectorIssuerRootCAPEM: legacy.RootCAPEM,
+			CertificateChainPEM:      legacy.CertificateChainPEM,
+			PrivateKeyPEM:            legacy.PrivateKeyPEM,
+			LeafFingerprintSHA256:    legacy.LeafFingerprintSHA256,
+		}, nil
+	case ControlCredentialSchemaVersionV2:
+		var current controlCredentialJSONV2
+		if err := decodeStrictControlCredentialJSON(contents, &current); err != nil {
+			return controlCredentialWire{}, err
+		}
+		return controlCredentialWire{
+			SchemaVersion:            current.SchemaVersion,
+			TenantID:                 current.TenantID,
+			ConnectorID:              current.ConnectorID,
+			Generation:               current.Generation,
+			CredentialRevision:       current.CredentialRevision,
+			ServerName:               current.ServerName,
+			ServerRootCAPEM:          current.ServerRootCAPEM,
+			ConnectorIssuerRootCAPEM: current.ConnectorIssuerRootCAPEM,
+			CertificateChainPEM:      current.CertificateChainPEM,
+			PrivateKeyPEM:            current.PrivateKeyPEM,
+			LeafFingerprintSHA256:    current.LeafFingerprintSHA256,
+		}, nil
+	default:
+		return controlCredentialWire{}, invalidControlCredential("unsupported schema version")
+	}
+}
+
+func decodeStrictControlCredentialJSON(contents []byte, destination any) error {
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		return invalidControlCredential("JSON document")
+	}
+	return requireJSONEOF(decoder)
+}
+
+func controlCredentialCAPool(certificates []*x509.Certificate, field string) (*x509.CertPool, error) {
+	pool := x509.NewCertPool()
+	for _, certificate := range certificates {
+		if !certificate.IsCA || !certificate.BasicConstraintsValid || certificate.KeyUsage&x509.KeyUsageCertSign == 0 {
+			return nil, invalidControlCredential(field + " contains a non-CA certificate")
+		}
+		pool.AddCert(certificate)
+	}
+	return pool, nil
 }
 
 func readControlCredentialFile(path string) ([]byte, error) {

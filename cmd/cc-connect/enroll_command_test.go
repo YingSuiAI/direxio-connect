@@ -62,6 +62,7 @@ func TestEnrollCommandRequiresExactRawTokenAndKeepsFailureStdoutEmpty(t *testing
 func TestParseEnrollInvocationRejectsUnknownDuplicateAndMismatchedTrustFlags(t *testing.T) {
 	tests := [][]string{
 		append(enrollmentCommandArguments(), "--unknown", "value"),
+		append(enrollmentCommandArguments(), "--control-root-ca-file", "legacy-control-ca.pem"),
 		append(enrollmentCommandArguments(), "--tenant-id", testSupervisorTenant),
 		func() []string {
 			args := enrollmentCommandArguments()
@@ -76,6 +77,21 @@ func TestParseEnrollInvocationRejectsUnknownDuplicateAndMismatchedTrustFlags(t *
 	}
 }
 
+func TestParseEnrollInvocationBindsDistinctPinnedTrustRoots(t *testing.T) {
+	options, err := parseEnrollInvocation(enrollmentCommandArguments())
+	if err != nil {
+		t.Fatalf("parse enrollment invocation: %v", err)
+	}
+	if options.EnrollmentRootCAFile != "enrollment-ca.pem" ||
+		options.EnrollmentRootCASHA256 != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ||
+		options.ControlServerRootCAFile != "control-server-ca.pem" ||
+		options.ControlServerRootCASHA256 != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" ||
+		options.ConnectorIssuerRootCAFile != "connector-issuer-ca.pem" ||
+		options.ConnectorIssuerRootCASHA256 != "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" {
+		t.Fatalf("parsed trust roots = %+v", options)
+	}
+}
+
 func enrollmentCommandArguments() []string {
 	return []string{
 		"--tenant-id", testSupervisorTenant,
@@ -87,8 +103,12 @@ func enrollmentCommandArguments() []string {
 		"--enrollment-url", "https://enroll.example.test:9443",
 		"--enrollment-server-name", "enroll.example.test",
 		"--enrollment-root-ca-file", "enrollment-ca.pem",
+		"--enrollment-root-ca-sha256", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"--control-url", "https://control.example.test:9444",
 		"--control-server-name", "control.example.test",
-		"--control-root-ca-file", "control-ca.pem",
+		"--control-server-root-ca-file", "control-server-ca.pem",
+		"--control-server-root-ca-sha256", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		"--connector-issuer-root-ca-file", "connector-issuer-ca.pem",
+		"--connector-issuer-root-ca-sha256", "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -105,7 +106,8 @@ func TestEnrollmentRequestMatchesRustOwnedVector(t *testing.T) {
 func TestEnrollConnectorRetriesExactRequestAndBuildsLoadableCredential(t *testing.T) {
 	options := enrollmentTestOptions()
 	token := bytes.Repeat([]byte{0x42}, enrollmentTokenBytes)
-	controlRootPEM, signer := enrollmentControlRoot(t)
+	controlServerRootPEM, _ := enrollmentTestRoot(t, "Dirextalk control server root")
+	connectorIssuerRootPEM, signer := enrollmentTestRoot(t, "Dirextalk connector issuer root")
 	fake := &enrollmentRPCStub{respond: func(request *controlv1.EnrollConnectorRequest) *controlv1.EnrollConnectorResponse {
 		leafDER, notBefore, notAfter := enrollmentLeaf(t, request, signer)
 		fingerprint := sha256.Sum256(leafDER)
@@ -125,7 +127,7 @@ func TestEnrollConnectorRetriesExactRequestAndBuildsLoadableCredential(t *testin
 	}}
 	entropy := append(bytes.Repeat([]byte{0x11}, ed25519.SeedSize), bytes.Repeat([]byte{0x22}, ed25519.SeedSize)...)
 	credentialJSON, err := enrollConnectorWithRPC(
-		context.Background(), options, token, controlRootPEM, fake, bytes.NewReader(entropy),
+		context.Background(), options, token, controlServerRootPEM, connectorIssuerRootPEM, fake, bytes.NewReader(entropy),
 		func(context.Context, time.Duration) error { return nil },
 	)
 	if err != nil {
@@ -144,11 +146,102 @@ func TestEnrollConnectorRetriesExactRequestAndBuildsLoadableCredential(t *testin
 	if err != nil {
 		t.Fatalf("generated credential did not pass supervisor loader: %v", err)
 	}
-	if credential.CredentialRevision != 1 || credential.ServerName != options.ControlServerName {
+	if credential.SchemaVersion != ControlCredentialSchemaVersionV2 ||
+		credential.CredentialRevision != options.SpecRevision || credential.ServerName != options.ControlServerName {
 		t.Fatalf("unexpected loaded credential: %+v", credential)
 	}
+	var wire controlCredentialJSONV2
+	if err := json.Unmarshal(credentialJSON, &wire); err != nil {
+		t.Fatalf("decode generated schema-v2 credential: %v", err)
+	}
+	if wire.ServerRootCAPEM != string(controlServerRootPEM) || wire.ConnectorIssuerRootCAPEM != string(connectorIssuerRootPEM) ||
+		wire.ServerRootCAPEM == wire.ConnectorIssuerRootCAPEM {
+		t.Fatal("generated credential did not retain separate control server and connector issuer roots")
+	}
+	if bytes.Contains(credentialJSON, []byte(`"root_ca_pem"`)) {
+		t.Fatal("schema-v2 output included the legacy shared root field")
+	}
 	if bytes.Contains(credentialJSON, []byte("refresh")) {
-		t.Fatal("schema-v1 output must not pretend refresh-key persistence is supported")
+		t.Fatal("schema-v2 output must not pretend refresh-key persistence is supported")
+	}
+}
+
+func TestEnrollConnectorRejectsCredentialRevisionDifferentFromSpec(t *testing.T) {
+	options := enrollmentTestOptions()
+	token := bytes.Repeat([]byte{0x42}, enrollmentTokenBytes)
+	controlServerRootPEM, _ := enrollmentTestRoot(t, "Dirextalk control server root")
+	connectorIssuerRootPEM, signer := enrollmentTestRoot(t, "Dirextalk connector issuer root")
+	fake := &enrollmentRPCStub{respond: func(request *controlv1.EnrollConnectorRequest) *controlv1.EnrollConnectorResponse {
+		leafDER, notBefore, notAfter := enrollmentLeaf(t, request, signer)
+		fingerprint := sha256.Sum256(leafDER)
+		credential := &controlv1.ConnectorCredential{
+			CredentialId:        "01890f47-5fd4-7cc2-8f8f-5f9476f4f006",
+			CredentialRevision:  options.SpecRevision + 1,
+			CertificateChainDer: [][]byte{leafDER},
+			LeafFingerprint:     fingerprint[:],
+			ValidFromMillis:     uint64(notBefore.UnixMilli()),
+			ValidUntilMillis:    uint64(notAfter.UnixMilli()),
+		}
+		return &controlv1.EnrollConnectorResponse{
+			Credential:    credential,
+			RequestDigest: enrollmentRequestDigest(request),
+			ResultDigest:  enrollmentCredentialResultDigest(options, request, credential),
+		}
+	}}
+	entropy := append(bytes.Repeat([]byte{0x11}, ed25519.SeedSize), bytes.Repeat([]byte{0x22}, ed25519.SeedSize)...)
+	if _, err := enrollConnectorWithRPC(
+		context.Background(), options, token, controlServerRootPEM, connectorIssuerRootPEM, fake, bytes.NewReader(entropy),
+		func(context.Context, time.Duration) error { return nil },
+	); err == nil {
+		t.Fatal("enrollment accepted a credential revision different from spec revision")
+	}
+}
+
+func TestValidateEnrollmentOptionsRequiresCanonicalCAPins(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*EnrollmentOptions)
+	}{
+		{
+			name:   "enrollment pin",
+			mutate: func(options *EnrollmentOptions) { options.EnrollmentRootCASHA256 = strings.Repeat("A", sha256.Size*2) },
+		},
+		{
+			name:   "control server pin",
+			mutate: func(options *EnrollmentOptions) { options.ControlServerRootCASHA256 = "invalid" },
+		},
+		{
+			name: "connector issuer pin",
+			mutate: func(options *EnrollmentOptions) {
+				options.ConnectorIssuerRootCASHA256 = strings.Repeat("0", sha256.Size*2-1)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			options := enrollmentTestOptions()
+			test.mutate(&options)
+			if err := ValidateEnrollmentOptions(options); err == nil {
+				t.Fatal("ValidateEnrollmentOptions accepted a noncanonical CA pin")
+			}
+		})
+	}
+}
+
+func TestReadVerifiedEnrollmentCAFileChecksExactPinBeforeTrustUse(t *testing.T) {
+	rootPEM, _ := enrollmentTestRoot(t, "Dirextalk pinned enrollment root")
+	path := filepath.Join(t.TempDir(), "enrollment-root.pem")
+	if err := os.WriteFile(path, rootPEM, 0o600); err != nil {
+		t.Fatalf("write CA fixture: %v", err)
+	}
+	digest := sha256.Sum256(rootPEM)
+	verified, err := readVerifiedEnrollmentCAFile(path, hex.EncodeToString(digest[:]))
+	if err != nil {
+		t.Fatalf("read verified CA: %v", err)
+	}
+	clear(verified)
+	if _, err := readVerifiedEnrollmentCAFile(path, strings.Repeat("0", sha256.Size*2)); err == nil {
+		t.Fatal("read verified CA accepted a mismatched SHA-256 pin")
 	}
 }
 
@@ -206,22 +299,26 @@ func (stub *enrollmentRPCStub) EnrollConnector(
 
 func enrollmentTestOptions() EnrollmentOptions {
 	return EnrollmentOptions{
-		TenantID:             "01890f47-5fd4-7cc2-8f8f-5f9476f4f002",
-		HostID:               "01890f47-5fd4-7cc2-8f8f-5f9476f4f003",
-		ConnectorID:          "01890f47-5fd4-7cc2-8f8f-5f9476f4f004",
-		Generation:           1,
-		SpecRevision:         1,
-		RequestID:            "01890f47-5fd4-7cc2-8f8f-5f9476f4f005",
-		EnrollmentURL:        "https://enroll.example.test:9443",
-		EnrollmentServerName: "enroll.example.test",
-		EnrollmentRootCAFile: "enrollment-ca.pem",
-		ControlURL:           "https://control.example.test:9444",
-		ControlServerName:    "control.example.test",
-		ControlRootCAFile:    "control-ca.pem",
+		TenantID:                    "01890f47-5fd4-7cc2-8f8f-5f9476f4f002",
+		HostID:                      "01890f47-5fd4-7cc2-8f8f-5f9476f4f003",
+		ConnectorID:                 "01890f47-5fd4-7cc2-8f8f-5f9476f4f004",
+		Generation:                  1,
+		SpecRevision:                1,
+		RequestID:                   "01890f47-5fd4-7cc2-8f8f-5f9476f4f005",
+		EnrollmentURL:               "https://enroll.example.test:9443",
+		EnrollmentServerName:        "enroll.example.test",
+		EnrollmentRootCAFile:        "enrollment-ca.pem",
+		EnrollmentRootCASHA256:      strings.Repeat("a", sha256.Size*2),
+		ControlURL:                  "https://control.example.test:9444",
+		ControlServerName:           "control.example.test",
+		ControlServerRootCAFile:     "control-server-ca.pem",
+		ControlServerRootCASHA256:   strings.Repeat("b", sha256.Size*2),
+		ConnectorIssuerRootCAFile:   "connector-issuer-ca.pem",
+		ConnectorIssuerRootCASHA256: strings.Repeat("c", sha256.Size*2),
 	}
 }
 
-func enrollmentControlRoot(t *testing.T) ([]byte, *enrollmentCertificateSigner) {
+func enrollmentTestRoot(t *testing.T, organization string) ([]byte, *enrollmentCertificateSigner) {
 	t.Helper()
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -230,7 +327,7 @@ func enrollmentControlRoot(t *testing.T) ([]byte, *enrollmentCertificateSigner) 
 	now := time.Now().Truncate(time.Second)
 	template := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{Organization: []string{"Dirextalk test"}},
+		Subject:               pkix.Name{Organization: []string{organization}},
 		NotBefore:             now.Add(-time.Hour),
 		NotAfter:              now.Add(2 * time.Hour),
 		IsCA:                  true,

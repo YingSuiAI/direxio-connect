@@ -97,18 +97,35 @@ and the sole URI SAN before opening a network stream.
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "tenant_id": "<tenant-uuidv7>",
   "connector_id": "<connector-uuidv7>",
   "generation": 7,
   "credential_revision": 11,
   "server_name": "im.example.com",
-  "root_ca_pem": "-----BEGIN CERTIFICATE-----\n...",
+  "server_root_ca_pem": "-----BEGIN CERTIFICATE-----\n...",
+  "connector_issuer_root_ca_pem": "-----BEGIN CERTIFICATE-----\n...",
   "certificate_chain_pem": "-----BEGIN CERTIFICATE-----\n...",
   "private_key_pem": "-----BEGIN PRIVATE KEY-----\n...",
   "leaf_fingerprint_sha256": "<64 lowercase hex characters>"
 }
 ```
+
+Schema v2 is the only writable enrollment output. `server_root_ca_pem` is used
+only to authenticate the control server during TLS, while
+`connector_issuer_root_ca_pem` is used only to verify the Connector's client
+certificate chain. Their pools are never merged. Legacy schema-v1 credentials
+with one `root_ca_pem` remain readable only for compatibility and map that
+single root to both roles.
+
+`dirextalk-connect enroll` requires one exact lowercase SHA-256 pin alongside
+each CA input: `--enrollment-root-ca-sha256`,
+`--control-server-root-ca-sha256`, and
+`--connector-issuer-root-ca-sha256`. It reads each regular CA file once,
+verifies its raw bytes against the pin before TLS or credential processing, and
+then passes only those verified bytes onward. A successful enrollment response
+must carry `credential_revision == spec_revision` before its credential is
+written.
 
 The leaf URI is exactly:
 

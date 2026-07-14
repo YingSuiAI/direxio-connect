@@ -26,10 +26,16 @@ import (
 const testNodeURL = "https://control.example.com:8443"
 
 func TestLoadControlCredentialBuildsStrictTLSConfig(t *testing.T) {
-	path := writeControlCredentialFixture(t, credentialCertificateOptions{}, nil, "")
+	fixture := writeControlCredentialFixtureForSchema(
+		t,
+		ControlCredentialSchemaVersionV2,
+		credentialCertificateOptions{},
+		nil,
+		"",
+	)
 
 	credential, err := LoadControlCredential(
-		path,
+		fixture.path,
 		testTenantID,
 		testConnectorID,
 		7,
@@ -38,7 +44,7 @@ func TestLoadControlCredentialBuildsStrictTLSConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadControlCredential: %v", err)
 	}
-	if credential.SchemaVersion != 1 || credential.TenantID != testTenantID || credential.ConnectorID != testConnectorID {
+	if credential.SchemaVersion != ControlCredentialSchemaVersionV2 || credential.TenantID != testTenantID || credential.ConnectorID != testConnectorID {
 		t.Fatalf("credential identity = %+v", credential)
 	}
 	if credential.Generation != 7 || credential.CredentialRevision != 11 {
@@ -61,6 +67,12 @@ func TestLoadControlCredentialBuildsStrictTLSConfig(t *testing.T) {
 	if tlsConfig.RootCAs == nil || len(tlsConfig.Certificates) != 1 {
 		t.Fatalf("TLS trust/client certificates not configured")
 	}
+	if !certificatePoolContainsSubject(tlsConfig.RootCAs, fixture.serverRoot) {
+		t.Fatal("TLS RootCAs does not contain the independent control server root")
+	}
+	if certificatePoolContainsSubject(tlsConfig.RootCAs, fixture.connectorIssuerRoot) {
+		t.Fatal("TLS RootCAs incorrectly trusts the connector certificate issuer")
+	}
 
 	// Callers receive a clone and cannot mutate the stored template used by a
 	// later control connection.
@@ -79,10 +91,64 @@ func TestLoadControlCredentialBuildsStrictTLSConfig(t *testing.T) {
 	}
 
 	formatted := fmt.Sprintf("%+v %#v", credential, credential)
-	for _, secret := range []string{"PRIVATE KEY", "CERTIFICATE", "root_ca_pem", "private_key_pem"} {
+	for _, secret := range []string{"PRIVATE KEY", "CERTIFICATE", "root_ca_pem", "server_root_ca_pem", "connector_issuer_root_ca_pem", "private_key_pem"} {
 		if strings.Contains(formatted, secret) {
 			t.Fatalf("formatted credential leaked %q: %s", secret, formatted)
 		}
+	}
+}
+
+func TestLoadControlCredentialSupportsLegacySchemaV1SingleRoot(t *testing.T) {
+	fixture := writeControlCredentialFixtureForSchema(
+		t,
+		ControlCredentialSchemaVersionV1,
+		credentialCertificateOptions{},
+		nil,
+		"",
+	)
+
+	credential, err := LoadControlCredential(
+		fixture.path,
+		testTenantID,
+		testConnectorID,
+		7,
+		testNodeURL,
+	)
+	if err != nil {
+		t.Fatalf("LoadControlCredential legacy v1: %v", err)
+	}
+	if credential.SchemaVersion != ControlCredentialSchemaVersionV1 {
+		t.Fatalf("schema version = %d, want legacy v1", credential.SchemaVersion)
+	}
+	if !certificatePoolContainsSubject(credential.TLSConfig().RootCAs, fixture.connectorIssuerRoot) {
+		t.Fatal("legacy single root was not retained for v1 TLS compatibility")
+	}
+}
+
+func TestLoadControlCredentialRejectsCrossSchemaTrustFields(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema uint16
+		mutate func(map[string]any)
+	}{
+		{
+			name:   "v2 contains legacy root",
+			schema: ControlCredentialSchemaVersionV2,
+			mutate: func(value map[string]any) { value["root_ca_pem"] = "unexpected" },
+		},
+		{
+			name:   "v1 contains split roots",
+			schema: ControlCredentialSchemaVersionV1,
+			mutate: func(value map[string]any) { value["server_root_ca_pem"] = "unexpected" },
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := writeControlCredentialFixtureForSchema(t, test.schema, credentialCertificateOptions{}, test.mutate, "")
+			if _, err := LoadControlCredential(fixture.path, testTenantID, testConnectorID, 7, testNodeURL); err == nil {
+				t.Fatal("LoadControlCredential accepted fields from another credential schema")
+			}
+		})
 	}
 }
 
@@ -174,36 +240,39 @@ type credentialCertificateOptions struct {
 	expired          bool
 }
 
+type controlCredentialFixture struct {
+	path                string
+	serverRoot          *x509.Certificate
+	connectorIssuerRoot *x509.Certificate
+}
+
 func writeControlCredentialFixture(
 	t *testing.T,
 	options credentialCertificateOptions,
 	mutate func(map[string]any),
 	suffix string,
 ) string {
+	return writeControlCredentialFixtureForSchema(
+		t,
+		ControlCredentialSchemaVersionV2,
+		options,
+		mutate,
+		suffix,
+	).path
+}
+
+func writeControlCredentialFixtureForSchema(
+	t *testing.T,
+	schemaVersion uint16,
+	options credentialCertificateOptions,
+	mutate func(map[string]any),
+	suffix string,
+) controlCredentialFixture {
 	t.Helper()
 
-	now := time.Now()
-	rootPublic, rootPrivate, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("generate root key: %v", err)
-	}
-	rootTemplate := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "Dirextalk test root"},
-		NotBefore:             now.Add(-time.Hour),
-		NotAfter:              now.Add(2 * time.Hour),
-		IsCA:                  true,
-		BasicConstraintsValid: true,
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
-	}
-	rootDER, err := x509.CreateCertificate(rand.Reader, rootTemplate, rootTemplate, rootPublic, rootPrivate)
-	if err != nil {
-		t.Fatalf("create root certificate: %v", err)
-	}
-	rootCertificate, err := x509.ParseCertificate(rootDER)
-	if err != nil {
-		t.Fatalf("parse root certificate: %v", err)
-	}
+	now := time.Now().Truncate(time.Second)
+	serverRoot, _, serverRootDER := createControlCredentialTestRoot(t, "Dirextalk control server root", 1, now)
+	connectorIssuerRoot, connectorIssuerPrivate, connectorIssuerRootDER := createControlCredentialTestRoot(t, "Dirextalk connector issuer root", 2, now)
 
 	leafPublic, leafPrivate, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -232,7 +301,7 @@ func writeControlCredentialFixture(
 		URIs:                  []*url.URL{identityURI},
 		DNSNames:              options.dnsNames,
 	}
-	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, rootCertificate, leafPublic, rootPrivate)
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, connectorIssuerRoot, leafPublic, connectorIssuerPrivate)
 	if err != nil {
 		t.Fatalf("create leaf certificate: %v", err)
 	}
@@ -242,16 +311,24 @@ func writeControlCredentialFixture(
 	}
 	fingerprint := sha256.Sum256(leafDER)
 	value := map[string]any{
-		"schema_version":          1,
+		"schema_version":          schemaVersion,
 		"tenant_id":               testTenantID,
 		"connector_id":            testConnectorID,
 		"generation":              7,
 		"credential_revision":     11,
 		"server_name":             "control.example.com",
-		"root_ca_pem":             string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootDER})),
 		"certificate_chain_pem":   string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER})),
 		"private_key_pem":         string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateKeyDER})),
 		"leaf_fingerprint_sha256": hex.EncodeToString(fingerprint[:]),
+	}
+	switch schemaVersion {
+	case ControlCredentialSchemaVersionV1:
+		value["root_ca_pem"] = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: connectorIssuerRootDER}))
+	case ControlCredentialSchemaVersionV2:
+		value["server_root_ca_pem"] = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: serverRootDER}))
+		value["connector_issuer_root_ca_pem"] = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: connectorIssuerRootDER}))
+	default:
+		t.Fatalf("unsupported test credential schema v%d", schemaVersion)
 	}
 	if mutate != nil {
 		mutate(value)
@@ -265,5 +342,52 @@ func writeControlCredentialFixture(
 		t.Fatalf("write credential: %v", err)
 	}
 	restrictCredentialFixture(t, path)
-	return path
+	return controlCredentialFixture{
+		path:                path,
+		serverRoot:          serverRoot,
+		connectorIssuerRoot: connectorIssuerRoot,
+	}
+}
+
+func createControlCredentialTestRoot(
+	t *testing.T,
+	commonName string,
+	serial int64,
+	now time.Time,
+) (*x509.Certificate, ed25519.PrivateKey, []byte) {
+	t.Helper()
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate %s key: %v", commonName, err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(serial),
+		Subject:               pkix.Name{CommonName: commonName},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(2 * time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, publicKey, privateKey)
+	if err != nil {
+		t.Fatalf("create %s certificate: %v", commonName, err)
+	}
+	certificate, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse %s certificate: %v", commonName, err)
+	}
+	return certificate, privateKey, der
+}
+
+func certificatePoolContainsSubject(pool *x509.CertPool, certificate *x509.Certificate) bool {
+	if pool == nil || certificate == nil {
+		return false
+	}
+	for _, subject := range pool.Subjects() {
+		if bytes.Equal(subject, certificate.RawSubject) {
+			return true
+		}
+	}
+	return false
 }

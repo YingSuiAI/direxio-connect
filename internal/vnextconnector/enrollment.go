@@ -42,22 +42,41 @@ const (
 var ErrEnrollmentOutcomeUnknown = errors.New("ENROLLMENT_OUTCOME_UNKNOWN")
 
 // EnrollmentOptions binds the one-time enrollment proof to one exact Host,
-// Connector fence, request, and pair of independently trusted TLS services.
-// The schema-v1 result intentionally persists only the control private key;
+// Connector fence, request, and independently pinned TLS trust material. The
+// schema-v2 result intentionally persists only the control private key;
 // refresh-key persistence and rotation remain unsupported.
 type EnrollmentOptions struct {
-	TenantID             string
-	HostID               string
-	ConnectorID          string
-	Generation           uint64
-	SpecRevision         uint64
-	RequestID            string
-	EnrollmentURL        string
-	EnrollmentServerName string
-	EnrollmentRootCAFile string
-	ControlURL           string
-	ControlServerName    string
-	ControlRootCAFile    string
+	TenantID                    string
+	HostID                      string
+	ConnectorID                 string
+	Generation                  uint64
+	SpecRevision                uint64
+	RequestID                   string
+	EnrollmentURL               string
+	EnrollmentServerName        string
+	EnrollmentRootCAFile        string
+	EnrollmentRootCASHA256      string
+	ControlURL                  string
+	ControlServerName           string
+	ControlServerRootCAFile     string
+	ControlServerRootCASHA256   string
+	ConnectorIssuerRootCAFile   string
+	ConnectorIssuerRootCASHA256 string
+}
+
+type verifiedEnrollmentTrustRoots struct {
+	enrollmentRootPEM      []byte
+	controlServerRootPEM   []byte
+	connectorIssuerRootPEM []byte
+}
+
+func (roots *verifiedEnrollmentTrustRoots) clear() {
+	if roots == nil {
+		return
+	}
+	clear(roots.enrollmentRootPEM)
+	clear(roots.controlServerRootPEM)
+	clear(roots.connectorIssuerRootPEM)
 }
 
 type connectorEnrollmentRPC interface {
@@ -94,12 +113,29 @@ func ValidateEnrollmentOptions(options EnrollmentOptions) error {
 	if err := validateEnrollmentEndpoint(options.ControlURL, options.ControlServerName, "control"); err != nil {
 		return err
 	}
-	for name, value := range map[string]string{
-		"enrollment root CA file": options.EnrollmentRootCAFile,
-		"control root CA file":    options.ControlRootCAFile,
+	for _, input := range []struct {
+		name  string
+		value string
+	}{
+		{"enrollment root CA file", options.EnrollmentRootCAFile},
+		{"control server root CA file", options.ControlServerRootCAFile},
+		{"connector issuer root CA file", options.ConnectorIssuerRootCAFile},
 	} {
+		name, value := input.name, input.value
 		if value == "" || value != strings.TrimSpace(value) || len(value) > maxEnrollmentPathBytes || strings.ContainsRune(value, '\x00') {
 			return fmt.Errorf("vnext connector: invalid %s", name)
+		}
+	}
+	for _, pin := range []struct {
+		name  string
+		value string
+	}{
+		{"enrollment root CA SHA-256", options.EnrollmentRootCASHA256},
+		{"control server root CA SHA-256", options.ControlServerRootCASHA256},
+		{"connector issuer root CA SHA-256", options.ConnectorIssuerRootCASHA256},
+	} {
+		if _, err := decodeCanonicalSHA256(pin.value); err != nil {
+			return fmt.Errorf("vnext connector: invalid %s", pin.name)
 		}
 	}
 	return nil
@@ -114,21 +150,16 @@ func EnrollConnector(ctx context.Context, options EnrollmentOptions, token []byt
 	if len(token) != enrollmentTokenBytes {
 		return nil, errors.New("vnext connector: enrollment token must be exactly 32 raw bytes")
 	}
-	enrollmentRootPEM, err := readEnrollmentRootCAFile(options.EnrollmentRootCAFile)
+	trustRoots, err := loadVerifiedEnrollmentTrustRoots(options)
 	if err != nil {
-		return nil, fmt.Errorf("vnext connector: read enrollment root CA: %w", err)
+		return nil, err
 	}
-	defer clear(enrollmentRootPEM)
-	controlRootPEM, err := readEnrollmentRootCAFile(options.ControlRootCAFile)
-	if err != nil {
-		return nil, fmt.Errorf("vnext connector: read control root CA: %w", err)
-	}
-	defer clear(controlRootPEM)
+	defer trustRoots.clear()
 
 	connection, err := NewEnrollmentConnection(
 		options.EnrollmentURL,
 		options.EnrollmentServerName,
-		enrollmentRootPEM,
+		trustRoots.enrollmentRootPEM,
 	)
 	if err != nil {
 		return nil, err
@@ -138,7 +169,8 @@ func EnrollConnector(ctx context.Context, options EnrollmentOptions, token []byt
 		ctx,
 		options,
 		token,
-		controlRootPEM,
+		trustRoots.controlServerRootPEM,
+		trustRoots.connectorIssuerRootPEM,
 		controlv1.NewConnectorEnrollmentClient(connection),
 		rand.Reader,
 		waitForEnrollmentRetry,
@@ -149,7 +181,8 @@ func enrollConnectorWithRPC(
 	ctx context.Context,
 	options EnrollmentOptions,
 	token []byte,
-	controlRootPEM []byte,
+	controlServerRootPEM []byte,
+	connectorIssuerRootPEM []byte,
 	client connectorEnrollmentRPC,
 	entropy io.Reader,
 	retryWait enrollmentRetryWait,
@@ -160,11 +193,16 @@ func enrollConnectorWithRPC(
 	if len(token) != enrollmentTokenBytes || client == nil || entropy == nil || retryWait == nil {
 		return nil, errors.New("vnext connector: invalid enrollment input")
 	}
-	canonicalControlRoot, _, err := enrollmentTLSRoots(controlRootPEM)
+	canonicalControlServerRoot, _, err := enrollmentTLSRoots(controlServerRootPEM)
 	if err != nil {
-		return nil, fmt.Errorf("vnext connector: invalid control root CA")
+		return nil, fmt.Errorf("vnext connector: invalid control server root CA")
 	}
-	defer clear(canonicalControlRoot)
+	defer clear(canonicalControlServerRoot)
+	canonicalConnectorIssuerRoot, _, err := enrollmentTLSRoots(connectorIssuerRootPEM)
+	if err != nil {
+		return nil, fmt.Errorf("vnext connector: invalid connector issuer root CA")
+	}
+	defer clear(canonicalConnectorIssuerRoot)
 	request, controlPrivate, refreshPrivate, _, _, requestDigest, err := buildEnrollmentRequest(options, token, entropy)
 	if err != nil {
 		return nil, err
@@ -182,7 +220,8 @@ func enrollConnectorWithRPC(
 		request,
 		requestDigest,
 		controlPrivate,
-		canonicalControlRoot,
+		canonicalControlServerRoot,
+		canonicalConnectorIssuerRoot,
 		response,
 	)
 	if err != nil {
@@ -294,7 +333,8 @@ func buildEnrollmentCredentialDocument(
 	request *controlv1.EnrollConnectorRequest,
 	requestDigest []byte,
 	controlPrivate ed25519.PrivateKey,
-	controlRootPEM []byte,
+	controlServerRootPEM []byte,
+	connectorIssuerRootPEM []byte,
 	response *controlv1.EnrollConnectorResponse,
 ) ([]byte, error) {
 	if response == nil || response.Credential == nil {
@@ -309,6 +349,7 @@ func buildEnrollmentCredentialDocument(
 	credential := response.Credential
 	if _, err := canonicalEnrollmentUUID(credential.CredentialId); err != nil ||
 		!isPositiveJSONSafeCredentialInteger(credential.CredentialRevision) ||
+		credential.CredentialRevision != options.SpecRevision ||
 		len(credential.CertificateChainDer) == 0 || len(credential.CertificateChainDer) > maxControlCertificateChain ||
 		len(credential.LeafFingerprint) != sha256.Size ||
 		credential.ValidFromMillis > maxJSONSafeCredentialInteger ||
@@ -356,20 +397,22 @@ func buildEnrollmentCredentialDocument(
 	defer clear(privateKeyDER)
 	privateKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateKeyDER})
 	defer clear(privateKeyPEM)
-	wire := controlCredentialJSON{
-		SchemaVersion:         ControlCredentialSchemaVersion,
-		TenantID:              options.TenantID,
-		ConnectorID:           options.ConnectorID,
-		Generation:            options.Generation,
-		CredentialRevision:    credential.CredentialRevision,
-		ServerName:            options.ControlServerName,
-		RootCAPEM:             string(controlRootPEM),
-		CertificateChainPEM:   string(chainPEM),
-		PrivateKeyPEM:         string(privateKeyPEM),
-		LeafFingerprintSHA256: hex.EncodeToString(credential.LeafFingerprint),
+	wire := controlCredentialJSONV2{
+		SchemaVersion:            ControlCredentialSchemaVersionV2,
+		TenantID:                 options.TenantID,
+		ConnectorID:              options.ConnectorID,
+		Generation:               options.Generation,
+		CredentialRevision:       credential.CredentialRevision,
+		ServerName:               options.ControlServerName,
+		ServerRootCAPEM:          string(controlServerRootPEM),
+		ConnectorIssuerRootCAPEM: string(connectorIssuerRootPEM),
+		CertificateChainPEM:      string(chainPEM),
+		PrivateKeyPEM:            string(privateKeyPEM),
+		LeafFingerprintSHA256:    hex.EncodeToString(credential.LeafFingerprint),
 	}
 	encoded, err := json.Marshal(wire)
-	wire.RootCAPEM = ""
+	wire.ServerRootCAPEM = ""
+	wire.ConnectorIssuerRootCAPEM = ""
 	wire.CertificateChainPEM = ""
 	wire.PrivateKeyPEM = ""
 	if err != nil {
@@ -390,9 +433,11 @@ func buildEnrollmentCredentialDocument(
 		clear(encoded)
 		return nil, fmt.Errorf("vnext connector: generated credential failed supervisor validation: %w", err)
 	}
-	if loaded.ServerName != options.ControlServerName {
+	if loaded.SchemaVersion != ControlCredentialSchemaVersionV2 ||
+		loaded.CredentialRevision != options.SpecRevision ||
+		loaded.ServerName != options.ControlServerName {
 		clear(encoded)
-		return nil, errors.New("vnext connector: generated credential server name mismatch")
+		return nil, errors.New("vnext connector: generated credential metadata mismatch")
 	}
 	return encoded, nil
 }
@@ -551,7 +596,51 @@ func validateEnrollmentEndpoint(value, serverName, label string) error {
 	return nil
 }
 
-func readEnrollmentRootCAFile(path string) ([]byte, error) {
+func loadVerifiedEnrollmentTrustRoots(options EnrollmentOptions) (*verifiedEnrollmentTrustRoots, error) {
+	enrollmentRootPEM, err := readVerifiedEnrollmentCAFile(options.EnrollmentRootCAFile, options.EnrollmentRootCASHA256)
+	if err != nil {
+		return nil, fmt.Errorf("vnext connector: read enrollment root CA: %w", err)
+	}
+	controlServerRootPEM, err := readVerifiedEnrollmentCAFile(options.ControlServerRootCAFile, options.ControlServerRootCASHA256)
+	if err != nil {
+		clear(enrollmentRootPEM)
+		return nil, fmt.Errorf("vnext connector: read control server root CA: %w", err)
+	}
+	connectorIssuerRootPEM, err := readVerifiedEnrollmentCAFile(options.ConnectorIssuerRootCAFile, options.ConnectorIssuerRootCASHA256)
+	if err != nil {
+		clear(enrollmentRootPEM)
+		clear(controlServerRootPEM)
+		return nil, fmt.Errorf("vnext connector: read connector issuer root CA: %w", err)
+	}
+	return &verifiedEnrollmentTrustRoots{
+		enrollmentRootPEM:      enrollmentRootPEM,
+		controlServerRootPEM:   controlServerRootPEM,
+		connectorIssuerRootPEM: connectorIssuerRootPEM,
+	}, nil
+}
+
+func readVerifiedEnrollmentCAFile(path, expectedSHA256 string) ([]byte, error) {
+	expected, err := decodeCanonicalSHA256(expectedSHA256)
+	if err != nil {
+		return nil, errors.New("CA SHA-256 pin is not canonical lowercase hex")
+	}
+	contents, err := readEnrollmentCAFile(path)
+	if err != nil {
+		return nil, err
+	}
+	actual := sha256.Sum256(contents)
+	if subtle.ConstantTimeCompare(expected, actual[:]) != 1 {
+		clear(contents)
+		return nil, errors.New("CA SHA-256 pin mismatch")
+	}
+	if _, _, err := enrollmentTLSRoots(contents); err != nil {
+		clear(contents)
+		return nil, errors.New("CA file does not contain a strict CA bundle")
+	}
+	return contents, nil
+}
+
+func readEnrollmentCAFile(path string) ([]byte, error) {
 	pathInfo, err := os.Lstat(path)
 	if err != nil || pathInfo.Mode()&os.ModeSymlink != 0 || !pathInfo.Mode().IsRegular() ||
 		pathInfo.Size() <= 0 || pathInfo.Size() > maxEnrollmentCABytes {
@@ -579,10 +668,6 @@ func readEnrollmentRootCAFile(path string) ([]byte, error) {
 		!os.SameFile(currentPathInfo, afterInfo) {
 		clear(contents)
 		return nil, errors.New("CA file changed while reading")
-	}
-	if _, _, err := enrollmentTLSRoots(contents); err != nil {
-		clear(contents)
-		return nil, errors.New("CA file does not contain a strict CA bundle")
 	}
 	return contents, nil
 }
