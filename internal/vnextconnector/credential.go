@@ -113,16 +113,45 @@ func LoadControlCredential(
 		!isPositiveJSONSafeCredentialInteger(expectedGeneration) {
 		return nil, invalidControlCredential("expected identity or generation")
 	}
-	nodeServerName, err := validatedControlNodeServerName(nodeURL)
-	if err != nil {
+	if _, err := validatedControlNodeServerName(nodeURL); err != nil {
 		return nil, err
 	}
-
 	contents, err := readControlCredentialFile(path)
 	if err != nil {
 		return nil, err
 	}
 	defer clear(contents)
+	return validateControlCredentialDocument(
+		contents,
+		expectedTenantID,
+		expectedConnectorID,
+		expectedGeneration,
+		nodeURL,
+	)
+}
+
+// validateControlCredentialDocument is the shared in-memory half of the
+// supervisor loader. Enrollment calls it before emitting generated credential
+// bytes, while LoadControlCredential retains the filesystem safety boundary.
+func validateControlCredentialDocument(
+	contents []byte,
+	expectedTenantID string,
+	expectedConnectorID string,
+	expectedGeneration uint64,
+	nodeURL string,
+) (*ControlCredential, error) {
+	if !controlCredentialUUIDv7Pattern.MatchString(expectedTenantID) ||
+		!controlCredentialUUIDv7Pattern.MatchString(expectedConnectorID) ||
+		!isPositiveJSONSafeCredentialInteger(expectedGeneration) {
+		return nil, invalidControlCredential("expected identity or generation")
+	}
+	nodeServerName, err := validatedControlNodeServerName(nodeURL)
+	if err != nil {
+		return nil, err
+	}
+	if len(contents) == 0 || len(contents) > MaxControlCredentialBytes {
+		return nil, ErrControlCredentialTooLarge
+	}
 	if !utf8.Valid(contents) {
 		return nil, invalidControlCredential("JSON is not valid UTF-8")
 	}

@@ -2,6 +2,7 @@ package vnextconnector
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 	"net/url"
@@ -15,6 +16,44 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 )
+
+// NewEnrollmentConnection builds the server-authenticated TLS connection used
+// only for the one-time enrollment RPC. It deliberately takes trust material
+// independent from the control mTLS credential issuer.
+func NewEnrollmentConnection(nodeURL, serverName string, rootCAPEM []byte) (*grpc.ClientConn, error) {
+	if err := validateEnrollmentEndpoint(nodeURL, serverName, "enrollment"); err != nil {
+		return nil, err
+	}
+	_, roots, err := enrollmentTLSRoots(rootCAPEM)
+	if err != nil {
+		return nil, errors.New("vnext connector: invalid enrollment root CA")
+	}
+	target, err := controlTarget(nodeURL)
+	if err != nil {
+		return nil, err
+	}
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		MaxVersion: tls.VersionTLS13,
+		ServerName: serverName,
+		RootCAs:    roots,
+		NextProtos: []string{"h2"},
+	}
+	return grpc.NewClient(
+		target,
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+		grpc.WithConnectParams(grpc.ConnectParams{
+			Backoff: backoff.Config{
+				BaseDelay:  250 * time.Millisecond,
+				Multiplier: 1.6,
+				Jitter:     0.2,
+				MaxDelay:   2 * time.Second,
+			},
+			MinConnectTimeout: 5 * time.Second,
+		}),
+		grpc.WithUserAgent("dirextalk-connect/vnext-enrollment"),
+	)
+}
 
 // NewControlConnection builds one outbound-only mTLS connection. grpc.NewClient
 // is intentionally non-blocking; the control stream's Hello/ConnectLease
