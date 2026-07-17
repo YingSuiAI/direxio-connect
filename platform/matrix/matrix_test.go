@@ -82,6 +82,33 @@ func TestNew_ValidConfig(t *testing.T) {
 	}
 }
 
+func TestNew_ApprovalOwnerID(t *testing.T) {
+	for _, invalid := range []any{"not-a-matrix-user", 7} {
+		_, err := New(map[string]any{
+			"homeserver":        "https://matrix.org",
+			"access_token":      "syt_test",
+			"room_id":           "!room:matrix.org",
+			"approval_owner_id": invalid,
+		})
+		if err == nil || !strings.Contains(err.Error(), "approval_owner_id must be a Matrix user ID") {
+			t.Fatalf("expected approval_owner_id validation error for %#v, got %v", invalid, err)
+		}
+	}
+
+	p, err := New(map[string]any{
+		"homeserver":        "https://matrix.org",
+		"access_token":      "syt_test",
+		"room_id":           "!room:matrix.org",
+		"approval_owner_id": "@owner:matrix.org",
+	})
+	if err != nil {
+		t.Fatalf("valid approval owner rejected: %v", err)
+	}
+	if got := p.(*Platform).approvalOwnerID; got != "@owner:matrix.org" {
+		t.Fatalf("approvalOwnerID = %q", got)
+	}
+}
+
 func TestNew_AutoJoinDefault(t *testing.T) {
 	p, _ := New(map[string]any{
 		"homeserver":   "https://matrix.org",
@@ -695,6 +722,207 @@ func TestPlatform_SetLifecycleHandler(t *testing.T) {
 	if plat.lifecycleHandler == nil {
 		t.Error("lifecycleHandler should be set")
 	}
+}
+
+func newApprovalTimelineTestPlatform(t *testing.T) (*Platform, <-chan map[string]any) {
+	t.Helper()
+	sent := make(chan map[string]any, 8)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || !strings.Contains(r.URL.Path, "/send/m.room.message/") {
+			t.Errorf("unexpected approval timeline request %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode approval timeline body: %v", err)
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		sent <- body
+		_, _ = w.Write([]byte(`{"event_id":"$approval"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := mautrix.NewClient(server.URL, "", "tok")
+	if err != nil {
+		t.Fatalf("create Matrix client: %v", err)
+	}
+	client.Client = server.Client()
+	return &Platform{
+		client:          client,
+		selfUserID:      "@agent:matrix.org",
+		allowedRoomID:   "!room:matrix.org",
+		approvalOwnerID: "@owner:matrix.org",
+		dedup:           core.MessageDedup{},
+		groupReplyAll:   true,
+	}, sent
+}
+
+func takeApprovalTimelineEvent(t *testing.T, sent <-chan map[string]any) map[string]any {
+	t.Helper()
+	select {
+	case body := <-sent:
+		return body
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for approval timeline event")
+		return nil
+	}
+}
+
+func assertNoApprovalTimelineEvent(t *testing.T, sent <-chan map[string]any) {
+	t.Helper()
+	select {
+	case body := <-sent:
+		t.Fatalf("unexpected approval timeline event: %#v", body)
+	default:
+	}
+}
+
+func TestSendApprovalRequest_RequiresConfiguredOwner(t *testing.T) {
+	p := &Platform{allowedRoomID: "!room:matrix.org"}
+	err := p.SendApprovalRequest(context.Background(), replyContext{roomID: "!room:matrix.org"}, core.ApprovalRequest{
+		ApprovalID: "de305d54-75b4-431b-adb2-eb6b9e546014",
+		Kind:       "tool",
+		ToolName:   "Bash",
+		Summary:    "A local agent requests permission.",
+	})
+	if err != core.ErrApprovalBridgeUnavailable {
+		t.Fatalf("SendApprovalRequest without approval_owner_id = %v, want ErrApprovalBridgeUnavailable", err)
+	}
+}
+
+func TestSendApprovalRequest_UsesStrictSafeEnvelope(t *testing.T) {
+	p, sent := newApprovalTimelineTestPlatform(t)
+	const approvalID = "de305d54-75b4-431b-adb2-eb6b9e546014"
+	if err := p.SendApprovalRequest(context.Background(), replyContext{roomID: "!room:matrix.org"}, core.ApprovalRequest{
+		ApprovalID: approvalID,
+		Kind:       "tool",
+		ToolName:   "Bash",
+		Summary:    "A local agent requests permission.",
+	}); err != nil {
+		t.Fatalf("SendApprovalRequest: %v", err)
+	}
+
+	body := takeApprovalTimelineEvent(t, sent)
+	if len(body) != 3 || body["msgtype"] != string(approvalRequestMsgType) {
+		t.Fatalf("request content = %#v, want only custom msgtype/body/envelope", body)
+	}
+	if body["body"] != "Approval requested. Use a compatible client to allow or deny." {
+		t.Fatalf("request body = %#v", body["body"])
+	}
+	envelope, ok := body[approvalEnvelopeKey].(map[string]any)
+	if !ok || len(envelope) != 5 {
+		t.Fatalf("request envelope = %#v", body[approvalEnvelopeKey])
+	}
+	if envelope["schema"] != approvalRequestSchema || envelope["approval_id"] != approvalID ||
+		envelope["kind"] != "tool" || envelope["tool_name"] != "Bash" ||
+		envelope["summary"] != "A local agent requests permission." {
+		t.Fatalf("request envelope = %#v", envelope)
+	}
+	for _, forbidden := range []string{"command", "request_id", "session_key", "api_key"} {
+		if _, exists := body[forbidden]; exists {
+			t.Fatalf("request leaked forbidden top-level field %q: %#v", forbidden, body)
+		}
+	}
+}
+
+func TestSendApprovalResult_AllowsCodeOnlyForFailedOutcome(t *testing.T) {
+	p, sent := newApprovalTimelineTestPlatform(t)
+	const approvalID = "de305d54-75b4-431b-adb2-eb6b9e546014"
+	if err := p.sendApprovalResult(context.Background(), replyContext{roomID: "!room:matrix.org"}, core.ApprovalResult{
+		ApprovalID: approvalID,
+		Outcome:    "expired",
+		Code:       "backend_response_failed",
+	}); err == nil {
+		t.Fatal("non-failed approval result with code was accepted")
+	}
+	assertNoApprovalTimelineEvent(t, sent)
+
+	if err := p.sendApprovalResult(context.Background(), replyContext{roomID: "!room:matrix.org"}, core.ApprovalResult{
+		ApprovalID: approvalID,
+		Outcome:    "failed",
+		Code:       "backend_response_failed",
+	}); err != nil {
+		t.Fatalf("failed approval result: %v", err)
+	}
+	body := takeApprovalTimelineEvent(t, sent)
+	envelope, ok := body[approvalEnvelopeKey].(map[string]any)
+	if !ok || len(envelope) != 4 || envelope["schema"] != approvalResultSchema ||
+		envelope["approval_id"] != approvalID || envelope["outcome"] != "failed" ||
+		envelope["code"] != "backend_response_failed" {
+		t.Fatalf("failed result envelope = %#v", body[approvalEnvelopeKey])
+	}
+}
+
+func approvalResponseEvent(eventID id.EventID, roomID id.RoomID, sender id.UserID, approvalID string, extra map[string]any) *event.Event {
+	raw := map[string]any{
+		"msgtype": string(approvalResponseMsgType),
+		"body":    "Approval response submitted.",
+		approvalEnvelopeKey: map[string]any{
+			"schema":      approvalResponseSchema,
+			"approval_id": approvalID,
+			"decision":    "allow",
+		},
+	}
+	for key, value := range extra {
+		raw[key] = value
+	}
+	return &event.Event{
+		RoomID:    roomID,
+		Sender:    sender,
+		ID:        eventID,
+		Type:      event.EventMessage,
+		Timestamp: time.Now().UnixMilli(),
+		Content: event.Content{
+			Raw: raw,
+			Parsed: &event.MessageEventContent{
+				MsgType: approvalResponseMsgType,
+				Body:    "Approval response submitted.",
+			},
+		},
+	}
+}
+
+func TestHandleMessage_ApprovalResponseRequiresExactRoomOwnerAndSchema(t *testing.T) {
+	p, sent := newApprovalTimelineTestPlatform(t)
+	const approvalID = "de305d54-75b4-431b-adb2-eb6b9e546014"
+	var ownerResponses []core.ApprovalResponse
+	var ordinaryMessages int
+	p.handler = func(_ core.Platform, _ *core.Message) { ordinaryMessages++ }
+	p.SetApprovalResponseHandler(func(response core.ApprovalResponse) core.ApprovalResult {
+		ownerResponses = append(ownerResponses, response)
+		return core.ApprovalResult{ApprovalID: response.ApprovalID, Outcome: "expired"}
+	})
+
+	p.handleMessage(context.Background(), approvalResponseEvent("$foreign", "!room:matrix.org", "@other:matrix.org", approvalID, nil))
+	p.handleMessage(context.Background(), approvalResponseEvent("$other-room", "!other:matrix.org", "@owner:matrix.org", approvalID, nil))
+	p.handleMessage(context.Background(), approvalResponseEvent("$malformed", "!room:matrix.org", "@owner:matrix.org", approvalID, map[string]any{"unexpected": true}))
+	if len(ownerResponses) != 0 || ordinaryMessages != 0 {
+		t.Fatalf("non-owner, cross-room, or malformed responses had side effects: owner=%#v ordinary=%d", ownerResponses, ordinaryMessages)
+	}
+	assertNoApprovalTimelineEvent(t, sent)
+
+	valid := approvalResponseEvent("$valid", "!room:matrix.org", "@owner:matrix.org", approvalID, nil)
+	p.handleMessage(context.Background(), valid)
+	p.handleMessage(context.Background(), valid) // duplicate event ID is one-shot at Matrix ingress too.
+	if len(ownerResponses) != 1 || ownerResponses[0] != (core.ApprovalResponse{ApprovalID: approvalID, Decision: "allow"}) {
+		t.Fatalf("owner responses = %#v", ownerResponses)
+	}
+	if ordinaryMessages != 0 {
+		t.Fatalf("approval response entered ordinary message dispatch %d times", ordinaryMessages)
+	}
+
+	result := takeApprovalTimelineEvent(t, sent)
+	if len(result) != 3 || result["msgtype"] != string(approvalResultMsgType) || result["body"] != "Approval expired." {
+		t.Fatalf("result content = %#v", result)
+	}
+	envelope, ok := result[approvalEnvelopeKey].(map[string]any)
+	if !ok || len(envelope) != 3 || envelope["schema"] != approvalResultSchema ||
+		envelope["approval_id"] != approvalID || envelope["outcome"] != "expired" {
+		t.Fatalf("result envelope = %#v", result[approvalEnvelopeKey])
+	}
+	assertNoApprovalTimelineEvent(t, sent)
 }
 
 // --- Dedup in handleMessage ---

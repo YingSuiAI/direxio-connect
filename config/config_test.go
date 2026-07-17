@@ -634,6 +634,33 @@ func TestLoad_ResolvesEnvPlaceholders(t *testing.T) {
 	}
 }
 
+func TestLoad_PreservesMatrixApprovalOwnerID(t *testing.T) {
+	configPath := writeConfigFixture(t, `
+[[projects]]
+name = "demo"
+
+[projects.agent]
+type = "codex"
+
+[projects.agent.options]
+work_dir = "C:/workspace/demo"
+
+[[projects.platforms]]
+type = "matrix"
+
+[projects.platforms.options]
+approval_owner_id = "@owner:matrix.org"
+`)
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if got := stringMapValue(cfg.Projects[0].Platforms[0].Options, "approval_owner_id"); got != "@owner:matrix.org" {
+		t.Fatalf("approval_owner_id = %q", got)
+	}
+}
+
 func TestLoad_MissingEnvPlaceholderBecomesEmptyString(t *testing.T) {
 
 	configPath := writeConfigFixture(t, `

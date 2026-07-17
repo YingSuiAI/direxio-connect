@@ -18,6 +18,11 @@ type Platform interface {
 // ErrNotSupported indicates a platform doesn't support a particular operation.
 var ErrNotSupported = errors.New("operation not supported by this platform")
 
+// ErrApprovalBridgeUnavailable indicates that a platform does not have an
+// owner-scoped approval bridge configured. The engine may use its existing
+// platform-native permission prompt in that compatibility case.
+var ErrApprovalBridgeUnavailable = errors.New("approval bridge unavailable")
+
 // ReplyContextReconstructor is an optional interface for platforms that can
 // recreate a reply context from a session key. This is needed for cron jobs
 // to send messages to users without an incoming message.
@@ -377,6 +382,49 @@ type AsyncRecoverablePlatform interface {
 
 // MessageHandler is called by platforms when a new message arrives.
 type MessageHandler func(p Platform, msg *Message)
+
+// ApprovalRequest is the intentionally non-sensitive public projection of an
+// agent permission request. The backend request ID and original tool input
+// remain private to the engine.
+type ApprovalRequest struct {
+	ApprovalID string
+	Kind       string
+	ToolName   string
+	Summary    string
+}
+
+// ApprovalResponse is a restricted owner decision received from a platform.
+// It must contain only an opaque approval ID and an allow or deny decision.
+type ApprovalResponse struct {
+	ApprovalID string
+	Decision   string
+}
+
+// ApprovalResult reports whether an approval decision was applied. Code is
+// present only for stable, non-sensitive failure categories.
+type ApprovalResult struct {
+	ApprovalID string
+	Outcome    string
+	Code       string
+}
+
+// ApprovalResponseHandler resolves a platform approval response without
+// exposing agent request details to the platform.
+type ApprovalResponseHandler func(ApprovalResponse) ApprovalResult
+
+// ApprovalRequestSender is an optional platform capability for rendering an
+// owner-scoped approval request. Implementations must return
+// ErrApprovalBridgeUnavailable when the capability is not configured.
+type ApprovalRequestSender interface {
+	SendApprovalRequest(ctx context.Context, replyCtx any, request ApprovalRequest) error
+}
+
+// ApprovalResponseReceiver is an optional platform capability for accepting
+// a validated owner approval response. The platform is responsible for its
+// room and sender authorization before invoking the handler.
+type ApprovalResponseReceiver interface {
+	SetApprovalResponseHandler(handler ApprovalResponseHandler)
+}
 
 // Agent abstracts an AI coding assistant (Claude Code, Cursor, Gemini CLI, etc.).
 // All agents must support persistent bidirectional sessions via StartSession.
