@@ -86,6 +86,84 @@ func (p *stubPlatformEngine) clearSent() {
 	p.mu.Unlock()
 }
 
+// approvalBridgeTestPlatform records only the public approval projection. It
+// deliberately has no path for backend request IDs or tool input.
+type approvalBridgeTestPlatform struct {
+	stubPlatformEngine
+	approvalRequests []ApprovalRequest
+	approvalHandler  ApprovalResponseHandler
+	approvalErr      error
+}
+
+func (p *approvalBridgeTestPlatform) SendApprovalRequest(_ context.Context, _ any, request ApprovalRequest) error {
+	p.mu.Lock()
+	p.approvalRequests = append(p.approvalRequests, request)
+	err := p.approvalErr
+	p.mu.Unlock()
+	return err
+}
+
+func (p *approvalBridgeTestPlatform) SetApprovalResponseHandler(handler ApprovalResponseHandler) {
+	p.mu.Lock()
+	p.approvalHandler = handler
+	p.mu.Unlock()
+}
+
+func (p *approvalBridgeTestPlatform) approvalSnapshot() []ApprovalRequest {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	requests := make([]ApprovalRequest, len(p.approvalRequests))
+	copy(requests, p.approvalRequests)
+	return requests
+}
+
+func (p *approvalBridgeTestPlatform) respondApproval(response ApprovalResponse) ApprovalResult {
+	p.mu.Lock()
+	handler := p.approvalHandler
+	p.mu.Unlock()
+	if handler == nil {
+		return ApprovalResult{ApprovalID: response.ApprovalID, Outcome: "failed", Code: "handler_unavailable"}
+	}
+	return handler(response)
+}
+
+type approvalRecordingSession struct {
+	*blockingSendAgentSession
+	mu         sync.Mutex
+	permission []struct {
+		requestID string
+		result    PermissionResult
+	}
+}
+
+func newApprovalRecordingSession(id string) *approvalRecordingSession {
+	return &approvalRecordingSession{blockingSendAgentSession: newBlockingSendSession(id)}
+}
+
+func (s *approvalRecordingSession) RespondPermission(requestID string, result PermissionResult) error {
+	s.mu.Lock()
+	s.permission = append(s.permission, struct {
+		requestID string
+		result    PermissionResult
+	}{requestID: requestID, result: result})
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *approvalRecordingSession) permissionSnapshot() []struct {
+	requestID string
+	result    PermissionResult
+} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	responses := make([]struct {
+		requestID string
+		result    PermissionResult
+	}, len(s.permission))
+	copy(responses, s.permission)
+	return responses
+}
+
 type recallCheckingPlatform struct {
 	stubPlatformEngine
 	recalled bool
@@ -8175,6 +8253,137 @@ func TestProcessInteractiveEvents_PermissionWhileSendBlocked(t *testing.T) {
 	}
 	close(sess.unblock)
 
+	sess.events <- Event{Type: EventResult, Content: "ok", Done: true}
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("processInteractiveEvents did not complete")
+	}
+}
+
+func TestProcessInteractiveEvents_OwnerScopedApprovalBridge(t *testing.T) {
+	p := &approvalBridgeTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "matrix"}}
+	sess := newApprovalRecordingSession("matrix-approval")
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	e.bindApprovalResponseHandler(p)
+
+	key := "matrix:!room:example.com:@owner:example.com"
+	session := e.sessions.GetOrCreateActive(key)
+	state := &interactiveState{
+		agentSession: sess,
+		platform:     p,
+		replyCtx:     "ctx",
+	}
+	e.interactiveMu.Lock()
+	e.interactiveStates[key] = state
+	e.interactiveMu.Unlock()
+
+	sendDone := make(chan error, 1)
+	go func() {
+		sendDone <- sess.Send("prompt", nil, nil)
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		e.processInteractiveEvents(state, session, e.sessions, key, "m-approval", time.Now(), nil, sendDone, "ctx")
+		close(done)
+	}()
+
+	select {
+	case <-sess.sendStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Send did not reach blocking wait")
+	}
+
+	const secretCommand = "echo super-secret-command"
+	sess.events <- Event{
+		Type:      EventPermissionRequest,
+		RequestID: "backend-request-id-must-not-leave-core",
+		ToolName:  "Bash",
+		ToolInput: secretCommand,
+		ToolInputRaw: map[string]any{
+			"command": secretCommand,
+			"api_key": "super-secret-key",
+		},
+	}
+
+	var request ApprovalRequest
+	deadline := time.After(2 * time.Second)
+	for {
+		requests := p.approvalSnapshot()
+		if len(requests) == 1 {
+			request = requests[0]
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for owner-scoped approval request: %#v", requests)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	if request.ApprovalID == "" {
+		t.Fatal("approval request must contain an opaque approval ID")
+	}
+	if request.Kind != "tool" || request.ToolName != "Bash" {
+		t.Fatalf("approval projection = %#v, want safe tool metadata", request)
+	}
+	if request.Summary == "" {
+		t.Fatal("approval request must contain a non-sensitive summary")
+	}
+	publicProjection := fmt.Sprintf("%+v", request)
+	for _, forbidden := range []string{secretCommand, "super-secret-key", "backend-request-id-must-not-leave-core"} {
+		if strings.Contains(publicProjection, forbidden) {
+			t.Fatalf("public approval projection leaked %q: %s", forbidden, publicProjection)
+		}
+	}
+	if sent := p.getSent(); len(sent) != 0 {
+		t.Fatalf("typed approval must not fall back to a text prompt: %#v", sent)
+	}
+	if !e.handlePendingPermission(p, &Message{SessionKey: key, ReplyCtx: "ctx"}, "allow", key) {
+		t.Fatal("ordinary text must be consumed while owner-scoped approval is pending")
+	}
+	if got := len(sess.permissionSnapshot()); got != 0 {
+		t.Fatalf("ordinary text bypassed the owner-scoped bridge: %d agent responses", got)
+	}
+
+	result := p.respondApproval(ApprovalResponse{ApprovalID: request.ApprovalID, Decision: "allow"})
+	if result.Outcome != "allowed" || result.Code != "" {
+		t.Fatalf("allow result = %#v, want allowed without a code", result)
+	}
+
+	responses := sess.permissionSnapshot()
+	if len(responses) != 1 {
+		t.Fatalf("RespondPermission calls = %d, want 1", len(responses))
+	}
+	if responses[0].requestID != "backend-request-id-must-not-leave-core" {
+		t.Fatalf("RespondPermission request ID = %q", responses[0].requestID)
+	}
+	if responses[0].result.Behavior != "allow" {
+		t.Fatalf("RespondPermission behavior = %q, want allow", responses[0].result.Behavior)
+	}
+	if responses[0].result.UpdatedInput["command"] != secretCommand {
+		t.Fatalf("backend allow input = %#v, want original private tool input", responses[0].result.UpdatedInput)
+	}
+
+	for _, response := range []ApprovalResponse{
+		{ApprovalID: request.ApprovalID, Decision: "deny"},
+		{ApprovalID: "de305d54-75b4-431b-adb2-eb6b9e546014", Decision: "allow"},
+	} {
+		stale := p.respondApproval(response)
+		if stale.Outcome != "expired" || stale.Code != "" {
+			t.Fatalf("stale response result = %#v, want non-sensitive expired", stale)
+		}
+	}
+	if got := len(sess.permissionSnapshot()); got != 1 {
+		t.Fatalf("stale approval response called RespondPermission %d times, want 1", got)
+	}
+	if sent := p.getSent(); len(sent) != 0 {
+		t.Fatalf("stale response must not enter a normal prompt: %#v", sent)
+	}
+
+	close(sess.unblock)
 	sess.events <- Event{Type: EventResult, Content: "ok", Done: true}
 
 	select {

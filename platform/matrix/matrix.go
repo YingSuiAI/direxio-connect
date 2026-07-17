@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-connect/core"
+	"github.com/google/uuid"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/event"
@@ -35,6 +36,7 @@ type Platform struct {
 	userID                string
 	allowFrom             string
 	allowedRoomID         id.RoomID
+	approvalOwnerID       id.UserID
 	shareSessionInChannel bool
 	groupReplyAll         bool
 	autoJoin              bool
@@ -45,6 +47,7 @@ type Platform struct {
 	client               *mautrix.Client
 	selfUserID           id.UserID
 	handler              core.MessageHandler
+	approvalHandler      core.ApprovalResponseHandler
 	lifecycleHandler     core.PlatformLifecycleHandler
 	cancel               context.CancelFunc
 	statusRefresher      *agentRoomStatusRefresher
@@ -60,10 +63,36 @@ type Platform struct {
 
 const (
 	agentRoomStatusEventType = "io.dirextalk.agent.status"
+	approvalRequestMsgType   = event.MessageType("io.dirextalk.agent.approval.request")
+	approvalResponseMsgType  = event.MessageType("io.dirextalk.agent.approval.response")
+	approvalResultMsgType    = event.MessageType("io.dirextalk.agent.approval.result")
+	approvalEnvelopeKey      = "io.dirextalk.agent_approval"
+	approvalRequestSchema    = "dirextalk.agent-approval-request/v1"
+	approvalResponseSchema   = "dirextalk.agent-approval-response/v1"
+	approvalResultSchema     = "dirextalk.agent-approval-result/v1"
 	initialBackoff           = 2 * time.Second
 	maxBackoff               = 60 * time.Second
 	stableWindow             = 10 * time.Second
 )
+
+type approvalEnvelope struct {
+	Schema     string `json:"schema"`
+	ApprovalID string `json:"approval_id"`
+	Kind       string `json:"kind,omitempty"`
+	ToolName   string `json:"tool_name,omitempty"`
+	Summary    string `json:"summary,omitempty"`
+	Decision   string `json:"decision,omitempty"`
+	Outcome    string `json:"outcome,omitempty"`
+	Code       string `json:"code,omitempty"`
+}
+
+// approvalTimelineContent keeps structured data in the one agreed custom
+// envelope; clients must not infer approval state from body text.
+type approvalTimelineContent struct {
+	MsgType  event.MessageType `json:"msgtype"`
+	Body     string            `json:"body"`
+	Approval approvalEnvelope  `json:"io.dirextalk.agent_approval"`
+}
 
 var (
 	agentRoomStatusMatrixEventType = event.Type{Type: agentRoomStatusEventType, Class: event.StateEventType}
@@ -106,6 +135,18 @@ func New(opts map[string]any) (core.Platform, error) {
 	if err := validateRoomID(roomID); err != nil {
 		return nil, err
 	}
+	approvalOwnerID, _ := opts["approval_owner_id"].(string)
+	if rawOwnerID, configured := opts["approval_owner_id"]; configured && rawOwnerID != nil {
+		if _, ok := rawOwnerID.(string); !ok {
+			return nil, fmt.Errorf("matrix: approval_owner_id must be a Matrix user ID")
+		}
+	}
+	approvalOwnerID = strings.TrimSpace(approvalOwnerID)
+	if approvalOwnerID != "" {
+		if _, _, err := id.UserID(approvalOwnerID).ParseAndValidateRelaxed(); err != nil {
+			return nil, fmt.Errorf("matrix: approval_owner_id must be a Matrix user ID")
+		}
+	}
 
 	groupReplyAll, _ := opts["group_reply_all"].(bool)
 	shareSession, _ := opts["share_session_in_channel"].(bool)
@@ -145,6 +186,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		userID:                userID,
 		allowFrom:             allowFrom,
 		allowedRoomID:         id.RoomID(roomID),
+		approvalOwnerID:       id.UserID(approvalOwnerID),
 		groupReplyAll:         groupReplyAll,
 		shareSessionInChannel: shareSession,
 		autoJoin:              autoJoin,
@@ -178,6 +220,152 @@ func (p *Platform) SetLifecycleHandler(h core.PlatformLifecycleHandler) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.lifecycleHandler = h
+}
+
+// SetApprovalResponseHandler installs the engine callback for already
+// room- and owner-authorized approval responses.
+func (p *Platform) SetApprovalResponseHandler(handler core.ApprovalResponseHandler) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.approvalHandler = handler
+}
+
+// SendApprovalRequest emits the safe public projection of a pending agent
+// permission. It is disabled until an exact Matrix owner is configured.
+func (p *Platform) SendApprovalRequest(ctx context.Context, rctx any, request core.ApprovalRequest) error {
+	if p.approvalOwnerID == "" {
+		return core.ErrApprovalBridgeUnavailable
+	}
+	rc, ok := rctx.(replyContext)
+	if !ok {
+		return fmt.Errorf("matrix: invalid reply context type %T", rctx)
+	}
+	if !p.roomAllowed(rc.roomID) {
+		return fmt.Errorf("matrix: approval request room is not allowed")
+	}
+	if !validApprovalID(request.ApprovalID) || request.Kind != "tool" ||
+		strings.TrimSpace(request.ToolName) == "" || len(request.ToolName) > 64 ||
+		strings.TrimSpace(request.Summary) == "" || len(request.Summary) > 160 {
+		return fmt.Errorf("matrix: invalid approval request projection")
+	}
+
+	content := approvalTimelineContent{
+		MsgType: approvalRequestMsgType,
+		Body:    "Approval requested. Use a compatible client to allow or deny.",
+		Approval: approvalEnvelope{
+			Schema:     approvalRequestSchema,
+			ApprovalID: request.ApprovalID,
+			Kind:       request.Kind,
+			ToolName:   request.ToolName,
+			Summary:    request.Summary,
+		},
+	}
+	return p.sendRoomEvent(ctx, rc.roomID, event.EventMessage, &content)
+}
+
+func (p *Platform) sendApprovalResult(ctx context.Context, rc replyContext, result core.ApprovalResult) error {
+	if !p.roomAllowed(rc.roomID) {
+		return fmt.Errorf("matrix: approval result room is not allowed")
+	}
+	if !validApprovalID(result.ApprovalID) || !validApprovalResult(result) {
+		return fmt.Errorf("matrix: invalid approval result")
+	}
+
+	body := "Approval result is available."
+	switch result.Outcome {
+	case "allowed":
+		body = "Approval allowed."
+	case "denied":
+		body = "Approval denied."
+	case "expired":
+		body = "Approval expired."
+	case "failed":
+		body = "Approval failed."
+	}
+	content := approvalTimelineContent{
+		MsgType: approvalResultMsgType,
+		Body:    body,
+		Approval: approvalEnvelope{
+			Schema:     approvalResultSchema,
+			ApprovalID: result.ApprovalID,
+			Outcome:    result.Outcome,
+			Code:       result.Code,
+		},
+	}
+	return p.sendRoomEvent(ctx, rc.roomID, event.EventMessage, &content)
+}
+
+func validApprovalID(approvalID string) bool {
+	parsed, err := uuid.Parse(approvalID)
+	return err == nil && parsed.String() == approvalID
+}
+
+func validApprovalResult(result core.ApprovalResult) bool {
+	switch result.Outcome {
+	case "allowed", "denied", "expired":
+		return result.Code == ""
+	case "failed":
+		switch result.Code {
+		case "backend_response_failed", "session_unavailable", "invalid_response":
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+}
+
+func parseApprovalResponse(content *event.MessageEventContent, raw map[string]interface{}) (core.ApprovalResponse, bool) {
+	if content == nil || content.MsgType != approvalResponseMsgType || len(raw) != 3 {
+		return core.ApprovalResponse{}, false
+	}
+	msgType, ok := raw["msgtype"].(string)
+	if !ok || event.MessageType(msgType) != approvalResponseMsgType {
+		return core.ApprovalResponse{}, false
+	}
+	body, ok := raw["body"].(string)
+	if !ok || strings.TrimSpace(body) == "" {
+		return core.ApprovalResponse{}, false
+	}
+	envelope, ok := raw[approvalEnvelopeKey].(map[string]interface{})
+	if !ok || len(envelope) != 3 {
+		return core.ApprovalResponse{}, false
+	}
+	schema, schemaOK := envelope["schema"].(string)
+	approvalID, idOK := envelope["approval_id"].(string)
+	decision, decisionOK := envelope["decision"].(string)
+	if !schemaOK || !idOK || !decisionOK || schema != approvalResponseSchema ||
+		!validApprovalID(approvalID) || (decision != "allow" && decision != "deny") {
+		return core.ApprovalResponse{}, false
+	}
+	return core.ApprovalResponse{ApprovalID: approvalID, Decision: decision}, true
+}
+
+func (p *Platform) handleApprovalResponse(ctx context.Context, evt *event.Event, content *event.MessageEventContent) {
+	if p.approvalOwnerID == "" || evt.Sender != p.approvalOwnerID {
+		slog.Debug("matrix: ignoring approval response from non-owner", "sender", evt.Sender)
+		return
+	}
+	response, ok := parseApprovalResponse(content, evt.Content.Raw)
+	if !ok {
+		slog.Debug("matrix: ignoring malformed approval response", "event_id", evt.ID)
+		return
+	}
+	handler := p.getApprovalResponseHandler()
+	if handler == nil {
+		slog.Debug("matrix: approval response received before engine handler was registered", "event_id", evt.ID)
+		return
+	}
+
+	result := handler(response)
+	if result.ApprovalID != response.ApprovalID {
+		slog.Error("matrix: approval handler returned mismatched approval ID")
+		return
+	}
+	if err := p.sendApprovalResult(ctx, replyContext{roomID: evt.RoomID, messageID: evt.ID}, result); err != nil {
+		slog.Warn("matrix: failed to send approval result", "outcome", result.Outcome, "error", err)
+	}
 }
 
 func (p *Platform) connectLoop(ctx context.Context) {
@@ -318,6 +506,18 @@ func (p *Platform) handleMessage(ctx context.Context, evt *event.Event) {
 	msgTime := time.UnixMilli(evt.Timestamp)
 	if core.IsOldMessage(msgTime) {
 		slog.Debug("matrix: ignoring old message", "event_id", evt.ID, "time", msgTime)
+		return
+	}
+
+	// Approval responses are a separate, owner-scoped control path. They must
+	// not pass through allow_from, group mention handling, or the ordinary
+	// agent prompt dispatcher.
+	if content.MsgType == approvalResponseMsgType {
+		p.handleApprovalResponse(ctx, evt, content)
+		return
+	}
+	if content.MsgType == approvalRequestMsgType || content.MsgType == approvalResultMsgType {
+		slog.Debug("matrix: ignoring approval timeline event not addressed to the bridge", "type", content.MsgType)
 		return
 	}
 
@@ -969,6 +1169,12 @@ func (p *Platform) getHandler() core.MessageHandler {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.handler
+}
+
+func (p *Platform) getApprovalResponseHandler() core.ApprovalResponseHandler {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.approvalHandler
 }
 
 func (p *Platform) publishClient(client *mautrix.Client, selfUserID id.UserID) (uint64, bool) {

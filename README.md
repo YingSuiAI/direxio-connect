@@ -87,6 +87,8 @@ access_token = "agent-matrix-access-token"
 user_id = "@agent:example.com"
 device_id = "DIREXTALK_CC_CONNECT"
 room_id = "!real-agent-room:example.com"
+# Optional: exact Matrix owner MXID for client approval cards.
+# approval_owner_id = "@owner:example.com"
 share_session_in_channel = true
 group_reply_all = true
 auto_join = false
@@ -145,6 +147,7 @@ dirextalk-connect daemon status --service-name t1.dirextalk.ai
 
 - The Matrix user must be the local `@agent:<server>` identity, not the portal owner.
 - `room_id` is required and must be the real persisted Dirextalk `agent_room_id`; the bridge rejects legacy pseudo ids such as `!agent:<domain>`.
+- Client approval cards require an explicit exact `approval_owner_id`. When it is absent, the owner-scoped card bridge is disabled; it is never inferred from `allow_from`.
 - Only `type = "matrix"` is supported.
 - Voice messages require `[speech]` with a working speech-to-text provider key. After transcription, the text is sent through the same agent-room conversation path as a normal text message.
 - Other chat platforms from upstream cc-connect are intentionally removed.

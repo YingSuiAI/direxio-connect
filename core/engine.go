@@ -24,6 +24,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/google/uuid"
 )
 
 const maxPlatformMessageLen = 4000
@@ -436,6 +438,8 @@ type Engine struct {
 	// Interactive agent session management
 	interactiveMu     sync.Mutex
 	interactiveStates map[string]*interactiveState // key = sessionKey
+	approvalMu        sync.Mutex
+	approvalBindings  map[string]*approvalBinding // opaque approval ID -> exact pending request
 
 	platformLifecycleMu sync.Mutex
 	platformReady       map[Platform]bool
@@ -654,7 +658,18 @@ type pendingPermission struct {
 	Answers         map[int]string // collected answers keyed by question index
 	CurrentQuestion int            // index of the question currently being asked
 	Resolved        chan struct{}  // closed when user responds
+	approvalBridge  bool           // only the owner-scoped bridge may resolve this request
 	resolveOnce     sync.Once
+	responseOnce    sync.Once
+}
+
+// approvalBinding ties a public opaque approval ID to the exact private
+// pending request. It deliberately never leaves the engine.
+type approvalBinding struct {
+	platform  Platform
+	state     *interactiveState
+	pending   *pendingPermission
+	requestID string
 }
 
 func (s *interactiveState) stopSignal() <-chan struct{} {
@@ -693,6 +708,15 @@ func (pp *pendingPermission) resolve() {
 	pp.resolveOnce.Do(func() { close(pp.Resolved) })
 }
 
+// claimResponse grants exactly one responder the right to resolve a normal
+// permission request. AskUserQuestion has its own multi-step flow and does not
+// use this guard.
+func (pp *pendingPermission) claimResponse() bool {
+	claimed := false
+	pp.responseOnce.Do(func() { claimed = true })
+	return claimed
+}
+
 func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath string, lang Language) *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
 	e := &Engine{
@@ -709,6 +733,7 @@ func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath str
 		skills:                NewSkillRegistry(),
 		aliases:               make(map[string]string),
 		interactiveStates:     make(map[string]*interactiveState),
+		approvalBindings:      make(map[string]*approvalBinding),
 		sendWorkDirs:          make(map[string]string),
 		platformReady:         make(map[Platform]bool),
 		startedAt:             time.Now(),
@@ -2195,6 +2220,7 @@ func (e *Engine) Start() error {
 	readyCount := 0
 	pendingCount := 0
 	for _, p := range e.platforms {
+		e.bindApprovalResponseHandler(p)
 		_, isAsync := p.(AsyncRecoverablePlatform)
 		if async, ok := p.(AsyncRecoverablePlatform); ok {
 			async.SetLifecycleHandler(e)
@@ -3172,6 +3198,203 @@ func (e *Engine) handleVoiceMessage(p Platform, msg *Message) {
 // Permission handling
 // ──────────────────────────────────────────────────────────────
 
+var approvalToolNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]{0,63}$`)
+
+func safeApprovalToolName(toolName string) string {
+	toolName = strings.TrimSpace(toolName)
+	if !approvalToolNamePattern.MatchString(toolName) {
+		return "tool"
+	}
+	return toolName
+}
+
+func (e *Engine) bindApprovalResponseHandler(p Platform) {
+	receiver, ok := p.(ApprovalResponseReceiver)
+	if !ok {
+		return
+	}
+	receiver.SetApprovalResponseHandler(func(response ApprovalResponse) ApprovalResult {
+		return e.handleApprovalResponse(p, response)
+	})
+}
+
+func (e *Engine) registerApprovalBinding(approvalID string, p Platform, state *interactiveState, pending *pendingPermission) {
+	e.approvalMu.Lock()
+	if e.approvalBindings == nil {
+		e.approvalBindings = make(map[string]*approvalBinding)
+	}
+	e.approvalBindings[approvalID] = &approvalBinding{
+		platform:  p,
+		state:     state,
+		pending:   pending,
+		requestID: pending.RequestID,
+	}
+	e.approvalMu.Unlock()
+}
+
+func (e *Engine) takeApprovalBinding(approvalID string, source Platform) *approvalBinding {
+	e.approvalMu.Lock()
+	defer e.approvalMu.Unlock()
+	binding := e.approvalBindings[approvalID]
+	if binding == nil || binding.platform != source {
+		return nil
+	}
+	delete(e.approvalBindings, approvalID)
+	return binding
+}
+
+func (e *Engine) clearApprovalBindingForPending(pending *pendingPermission) {
+	if pending == nil {
+		return
+	}
+	e.approvalMu.Lock()
+	for approvalID, binding := range e.approvalBindings {
+		if binding.pending == pending {
+			delete(e.approvalBindings, approvalID)
+		}
+	}
+	e.approvalMu.Unlock()
+}
+
+// trySendOwnerScopedApproval sends the non-sensitive approval projection when
+// the active platform has an explicitly configured owner-scoped bridge. The
+// original backend request ID and tool input remain only in pending.
+func (e *Engine) trySendOwnerScopedApproval(p Platform, state *interactiveState, replyCtx any, pending *pendingPermission) (bool, error) {
+	sender, ok := p.(ApprovalRequestSender)
+	if !ok {
+		return false, ErrApprovalBridgeUnavailable
+	}
+
+	request := ApprovalRequest{
+		ApprovalID: uuid.NewString(),
+		Kind:       "tool",
+		ToolName:   safeApprovalToolName(pending.ToolName),
+		Summary:    "A local agent requests permission.",
+	}
+
+	state.mu.Lock()
+	if state.pending != pending {
+		state.mu.Unlock()
+		return false, fmt.Errorf("approval request is no longer pending")
+	}
+	// Once an owner-scoped request is being attempted, ordinary platform text
+	// must never resolve it. This remains true for delivery failure so the
+	// safe-deny path below is the only possible resolution.
+	pending.approvalBridge = true
+	state.mu.Unlock()
+
+	e.registerApprovalBinding(request.ApprovalID, p, state, pending)
+	if err := e.waitOutgoing(p); err != nil {
+		e.clearApprovalBindingForPending(pending)
+		return false, fmt.Errorf("wait approval delivery: %w", err)
+	}
+	if err := sender.SendApprovalRequest(e.ctx, replyCtx, request); err != nil {
+		e.clearApprovalBindingForPending(pending)
+		if errors.Is(err, ErrApprovalBridgeUnavailable) {
+			state.mu.Lock()
+			if state.pending == pending {
+				pending.approvalBridge = false
+			}
+			state.mu.Unlock()
+		}
+		return false, err
+	}
+
+	e.hooks.Emit(HookEvent{
+		Event:    HookEventPermissionRequested,
+		Platform: p.Name(),
+		Content:  request.Summary,
+		Extra:    map[string]any{"tool_name": request.ToolName},
+	})
+	return true, nil
+}
+
+func (e *Engine) denyApprovalDelivery(p Platform, state *interactiveState, replyCtx any, pending *pendingPermission) {
+	if !pending.claimResponse() {
+		return
+	}
+
+	state.mu.Lock()
+	if state.pending != pending {
+		state.mu.Unlock()
+		return
+	}
+	state.pending = nil
+	agentSession := state.agentSession
+	state.mu.Unlock()
+	e.clearApprovalBindingForPending(pending)
+
+	if agentSession != nil {
+		if err := agentSession.RespondPermission(pending.RequestID, PermissionResult{
+			Behavior: "deny",
+			Message:  "Approval request delivery failed.",
+		}); err != nil {
+			slog.Error("failed to deny undeliverable approval request", "error", err)
+		}
+	}
+	pending.resolve()
+	e.reply(p, replyCtx, e.i18n.T(MsgPermissionDenied))
+}
+
+// handleApprovalResponse applies an already room- and owner-authorized
+// response. The one-shot binding prevents stale or duplicate timeline events
+// from reaching the agent or the ordinary prompt path.
+func (e *Engine) handleApprovalResponse(source Platform, response ApprovalResponse) ApprovalResult {
+	result := ApprovalResult{ApprovalID: response.ApprovalID}
+	if response.Decision != "allow" && response.Decision != "deny" {
+		result.Outcome = "failed"
+		result.Code = "invalid_response"
+		return result
+	}
+
+	binding := e.takeApprovalBinding(response.ApprovalID, source)
+	if binding == nil || !binding.pending.claimResponse() {
+		result.Outcome = "expired"
+		return result
+	}
+
+	state := binding.state
+	pending := binding.pending
+	state.mu.Lock()
+	if state.pending != pending || !pending.approvalBridge || pending.RequestID != binding.requestID {
+		state.mu.Unlock()
+		result.Outcome = "expired"
+		return result
+	}
+	state.pending = nil
+	agentSession := state.agentSession
+	state.mu.Unlock()
+
+	if agentSession == nil {
+		pending.resolve()
+		result.Outcome = "failed"
+		result.Code = "session_unavailable"
+		return result
+	}
+
+	permission := PermissionResult{Behavior: response.Decision}
+	if response.Decision == "allow" {
+		permission.UpdatedInput = pending.ToolInput
+	} else {
+		permission.Message = "User denied this tool use."
+	}
+	if err := agentSession.RespondPermission(pending.RequestID, permission); err != nil {
+		slog.Error("failed to send owner approval response", "error", err)
+		pending.resolve()
+		result.Outcome = "failed"
+		result.Code = "backend_response_failed"
+		return result
+	}
+
+	pending.resolve()
+	if response.Decision == "allow" {
+		result.Outcome = "allowed"
+	} else {
+		result.Outcome = "denied"
+	}
+	return result
+}
+
 func (e *Engine) handlePendingPermission(p Platform, msg *Message, content string, interactiveKey string) bool {
 	iKey := interactiveKey
 	if iKey == "" {
@@ -3220,6 +3443,16 @@ func (e *Engine) handlePendingPermission(p Platform, msg *Message, content strin
 		return false
 	}
 found:
+	// A configured owner-scoped approval bridge deliberately consumes all
+	// ordinary platform text while it is pending. Otherwise an allowlisted but
+	// non-owner Matrix sender could bypass the exact approval_owner_id check by
+	// typing "allow" into the room.
+	state.mu.Lock()
+	ownerScopedApproval := state.pending == pending && pending.approvalBridge
+	state.mu.Unlock()
+	if ownerScopedApproval {
+		return true
+	}
 
 	// AskUserQuestion: interpret user response as an answer, not a permission decision
 	if len(pending.Questions) > 0 {
@@ -3264,18 +3497,43 @@ found:
 		state.mu.Lock()
 		state.pending = nil
 		state.mu.Unlock()
+		e.clearApprovalBindingForPending(pending)
 		pending.resolve()
 		return true
 	}
 
 	lower := strings.ToLower(strings.TrimSpace(content))
+	approveAll := isApproveAllResponse(lower)
+	allow := isAllowResponse(lower)
+	deny := isDenyResponse(lower)
+	if !approveAll && !allow && !deny {
+		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPermissionHint))
+		return true
+	}
 
-	if isApproveAllResponse(lower) {
-		state.mu.Lock()
-		state.approveAll = true
+	if !pending.claimResponse() {
+		return true
+	}
+
+	state.mu.Lock()
+	if state.pending != pending {
 		state.mu.Unlock()
+		return true
+	}
+	if approveAll {
+		state.approveAll = true
+	}
+	state.pending = nil
+	agentSession := state.agentSession
+	state.mu.Unlock()
+	e.clearApprovalBindingForPending(pending)
+	if agentSession == nil {
+		pending.resolve()
+		return true
+	}
 
-		if err := state.agentSession.RespondPermission(pending.RequestID, PermissionResult{
+	if approveAll {
+		if err := agentSession.RespondPermission(pending.RequestID, PermissionResult{
 			Behavior:     "allow",
 			UpdatedInput: pending.ToolInput,
 		}); err != nil {
@@ -3284,8 +3542,8 @@ found:
 		} else {
 			e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPermissionApproveAll))
 		}
-	} else if isAllowResponse(lower) {
-		if err := state.agentSession.RespondPermission(pending.RequestID, PermissionResult{
+	} else if allow {
+		if err := agentSession.RespondPermission(pending.RequestID, PermissionResult{
 			Behavior:     "allow",
 			UpdatedInput: pending.ToolInput,
 		}); err != nil {
@@ -3294,22 +3552,15 @@ found:
 		} else {
 			e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPermissionAllowed))
 		}
-	} else if isDenyResponse(lower) {
-		if err := state.agentSession.RespondPermission(pending.RequestID, PermissionResult{
+	} else if deny {
+		if err := agentSession.RespondPermission(pending.RequestID, PermissionResult{
 			Behavior: "deny",
 			Message:  "User denied this tool use.",
 		}); err != nil {
 			slog.Error("failed to send deny response", "error", err)
 		}
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPermissionDenied))
-	} else {
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPermissionHint))
-		return true
 	}
-
-	state.mu.Lock()
-	state.pending = nil
-	state.mu.Unlock()
 	pending.resolve()
 
 	return true
@@ -3859,6 +4110,14 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			"have_agent_session", currentID,
 		)
 		e.stopUnsolicitedReader(state)
+		state.mu.Lock()
+		pending := state.pending
+		state.pending = nil
+		state.mu.Unlock()
+		if pending != nil {
+			e.clearApprovalBindingForPending(pending)
+			pending.resolve()
+		}
 		state.markStopped()
 		// Close synchronously to prevent race condition where old agent
 		// continues outputting while new agent starts (issue #327).
@@ -4081,6 +4340,7 @@ func (e *Engine) cleanupInteractiveState(sessionKey string, expected ...*interac
 		state.pending = nil
 		state.mu.Unlock()
 		if pending != nil {
+			e.clearApprovalBindingForPending(pending)
 			pending.resolve()
 		}
 
@@ -5165,13 +5425,24 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if isAskQuestion {
 				e.sendAskQuestionPrompt(p, replyCtx, event.Questions, 0)
 			} else {
-				permLimit := e.display.ToolMaxLen
-				if permLimit > 0 {
-					permLimit = permLimit * 8 / 5
+				if sent, err := e.trySendOwnerScopedApproval(p, state, replyCtx, pending); sent {
+					// The owner-scoped bridge sends only its safe public projection.
+				} else if errors.Is(err, ErrApprovalBridgeUnavailable) {
+					// Compatibility path for platforms without an explicit owner-scoped
+					// approval bridge. Matrix only reaches it when approval_owner_id is
+					// intentionally absent.
+					permLimit := e.display.ToolMaxLen
+					if permLimit > 0 {
+						permLimit = permLimit * 8 / 5
+					}
+					toolInput := truncateIf(event.ToolInput, permLimit)
+					prompt := fmt.Sprintf(e.i18n.T(MsgPermissionPrompt), event.ToolName, toolInput)
+					e.sendPermissionPrompt(p, replyCtx, prompt, event.ToolName, toolInput)
+				} else {
+					slog.Error("owner approval request delivery failed; denying safely",
+						"platform", p.Name(), "error", err)
+					e.denyApprovalDelivery(p, state, replyCtx, pending)
 				}
-				toolInput := truncateIf(event.ToolInput, permLimit)
-				prompt := fmt.Sprintf(e.i18n.T(MsgPermissionPrompt), event.ToolName, toolInput)
-				e.sendPermissionPrompt(p, replyCtx, prompt, event.ToolName, toolInput)
 			}
 
 			// Stop idle timer while waiting for user permission response;
@@ -9766,6 +10037,7 @@ func (e *Engine) stopInteractiveSessionWithOptions(sessionKey string, notifyQueu
 		e.interactiveMu.Unlock()
 
 		if pending != nil {
+			e.clearApprovalBindingForPending(pending)
 			pending.resolve()
 		}
 		if notifyQueued {
@@ -9807,6 +10079,7 @@ normalCleanup:
 	e.interactiveMu.Unlock()
 
 	if pending != nil {
+		e.clearApprovalBindingForPending(pending)
 		pending.resolve()
 	}
 	if notifyQueued {

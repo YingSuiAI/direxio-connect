@@ -27,6 +27,8 @@ access_token = "agent-matrix-access-token"
 user_id = "@agent:example.com"
 device_id = "DIREXTALK_CC_CONNECT"
 room_id = "!real-agent-room:example.com"
+# Optional: exact Matrix owner MXID for owner-scoped approval cards.
+# approval_owner_id = "@owner:example.com"
 share_session_in_channel = true
 group_reply_all = true
 auto_join = false
@@ -42,3 +44,9 @@ Replace `<agent-backend>` with the local runtime to bridge, for example `acp`, `
 - Replies are sent as the Matrix `@agent:<server>` user.
 - The portal owner session must not be used for agent replies.
 - Only `type = "matrix"` is accepted by config validation.
+
+## Owner-Scoped Approval Cards
+
+Set `approval_owner_id` to the exact portal-owner Matrix MXID to enable client approval cards. It is intentionally separate from `allow_from` and is never inferred from a sender. When absent, this bridge is disabled for compatibility.
+
+The bridge uses `m.room.message` with these custom `msgtype` values: `io.dirextalk.agent.approval.request`, `io.dirextalk.agent.approval.response`, and `io.dirextalk.agent.approval.result`. Structured fields are exclusively inside the `io.dirextalk.agent_approval` map; `body` is only a non-sensitive fallback. A response must come from both the configured room and exact `approval_owner_id`, and contains only the opaque `approval_id` plus `allow` or `deny`. Connect does not expose backend request IDs, session keys, command text, tool input, paths, or credentials. Duplicate or stale responses have no agent side effect and receive `outcome = "expired"` when Connect can reply. Result `code` is omitted unless `outcome = "failed"`; its only values are `backend_response_failed`, `session_unavailable`, and `invalid_response`.
