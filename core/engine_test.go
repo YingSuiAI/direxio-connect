@@ -91,6 +91,7 @@ func (p *stubPlatformEngine) clearSent() {
 type approvalBridgeTestPlatform struct {
 	stubPlatformEngine
 	approvalRequests []ApprovalRequest
+	approvalResults  []ApprovalResult
 	approvalHandler  ApprovalResponseHandler
 	approvalErr      error
 }
@@ -115,6 +116,21 @@ func (p *approvalBridgeTestPlatform) approvalSnapshot() []ApprovalRequest {
 	requests := make([]ApprovalRequest, len(p.approvalRequests))
 	copy(requests, p.approvalRequests)
 	return requests
+}
+
+func (p *approvalBridgeTestPlatform) SendApprovalResult(_ context.Context, _ any, result ApprovalResult) error {
+	p.mu.Lock()
+	p.approvalResults = append(p.approvalResults, result)
+	p.mu.Unlock()
+	return nil
+}
+
+func (p *approvalBridgeTestPlatform) approvalResultSnapshot() []ApprovalResult {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	results := make([]ApprovalResult, len(p.approvalResults))
+	copy(results, p.approvalResults)
+	return results
 }
 
 func (p *approvalBridgeTestPlatform) respondApproval(response ApprovalResponse) ApprovalResult {
@@ -8390,6 +8406,126 @@ func TestProcessInteractiveEvents_OwnerScopedApprovalBridge(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("processInteractiveEvents did not complete")
+	}
+}
+
+func TestProcessInteractiveEvents_OwnerScopedApprovalExpiry(t *testing.T) {
+	p := &approvalBridgeTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "matrix"}}
+	sess := newApprovalRecordingSession("matrix-approval-expiry")
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	e.ownerScopedApprovalTimeout = 25 * time.Millisecond
+	e.bindApprovalResponseHandler(p)
+
+	key := "matrix:!room:example.com:@owner:example.com"
+	session := e.sessions.GetOrCreateActive(key)
+	state := &interactiveState{
+		agentSession: sess,
+		platform:     p,
+		replyCtx:     "ctx",
+	}
+	e.interactiveMu.Lock()
+	e.interactiveStates[key] = state
+	e.interactiveMu.Unlock()
+
+	sendDone := make(chan error, 1)
+	go func() {
+		sendDone <- sess.Send("prompt", nil, nil)
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		e.processInteractiveEvents(state, session, e.sessions, key, "m-approval-expiry", time.Now(), nil, sendDone, "ctx")
+		close(done)
+	}()
+
+	select {
+	case <-sess.sendStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Send did not reach blocking wait")
+	}
+
+	const secretCommand = "echo super-secret-expiry-command"
+	sess.events <- Event{
+		Type:      EventPermissionRequest,
+		RequestID: "backend-request-id-must-not-leave-core",
+		ToolName:  "Bash",
+		ToolInput: secretCommand,
+		ToolInputRaw: map[string]any{
+			"command": secretCommand,
+			"api_key": "super-secret-key",
+		},
+	}
+
+	var request ApprovalRequest
+	deadline := time.After(2 * time.Second)
+	for {
+		requests := p.approvalSnapshot()
+		if len(requests) == 1 {
+			request = requests[0]
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for owner-scoped approval request: %#v", requests)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	var expired ApprovalResult
+	deadline = time.After(2 * time.Second)
+	for {
+		results := p.approvalResultSnapshot()
+		if len(results) == 1 {
+			expired = results[0]
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for expired owner-scoped approval result: %#v", results)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if expired != (ApprovalResult{ApprovalID: request.ApprovalID, Outcome: "expired"}) {
+		t.Fatalf("expiry result = %#v, want opaque expired result", expired)
+	}
+	publicResult := fmt.Sprintf("%+v", expired)
+	for _, forbidden := range []string{secretCommand, "super-secret-key", "backend-request-id-must-not-leave-core"} {
+		if strings.Contains(publicResult, forbidden) {
+			t.Fatalf("expired approval result leaked %q: %s", forbidden, publicResult)
+		}
+	}
+
+	responses := sess.permissionSnapshot()
+	if len(responses) != 1 {
+		t.Fatalf("RespondPermission calls = %d, want 1 safe deny", len(responses))
+	}
+	if responses[0].requestID != "backend-request-id-must-not-leave-core" || responses[0].result.Behavior != "deny" {
+		t.Fatalf("expiry backend response = %#v, want private request ID with deny", responses[0])
+	}
+	state.mu.Lock()
+	pending := state.pending
+	state.mu.Unlock()
+	if pending != nil {
+		t.Fatal("expired approval remained pending and would block the core event loop")
+	}
+
+	late := p.respondApproval(ApprovalResponse{ApprovalID: request.ApprovalID, Decision: "allow"})
+	if late.Outcome != "expired" || late.Code != "" {
+		t.Fatalf("late owner response = %#v, want non-sensitive expired", late)
+	}
+	if got := len(sess.permissionSnapshot()); got != 1 {
+		t.Fatalf("late owner response called RespondPermission %d times, want 1", got)
+	}
+	if got := len(p.approvalResultSnapshot()); got != 1 {
+		t.Fatalf("late owner response emitted %d engine expiry results, want 1", got)
+	}
+
+	close(sess.unblock)
+	sess.events <- Event{Type: EventResult, Content: "ok", Done: true}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("processInteractiveEvents did not complete after approval expiry")
 	}
 }
 

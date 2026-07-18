@@ -39,6 +39,12 @@ const defaultMaxQueuedMessages = 5 // default cap for queued messages per sessio
 // platform does not block startup logging indefinitely.
 const defaultPendingRestartTimeout = 10 * time.Second
 
+// defaultOwnerScopedApprovalTimeout resolves an unanswered Matrix approval
+// card shortly before Codex app-server's five-minute fallback. The margin
+// ensures the engine, which owns the public approval binding and its waiting
+// turn, performs the safe deny and terminal projection first.
+const defaultOwnerScopedApprovalTimeout = 4*time.Minute + 30*time.Second
+
 // previewText truncates s to maxRunes runes for safe inclusion in debug logs.
 // Truncation uses runes (not bytes) so multi-byte characters render cleanly.
 // Newlines are replaced with literal "\n" to keep each log entry on one line.
@@ -391,6 +397,10 @@ type Engine struct {
 	dirHistory        *DirHistory
 	baseWorkDir       string
 	projectState      *ProjectStateStore
+
+	// ownerScopedApprovalTimeout is intentionally engine-owned so an
+	// unanswered app-server request cannot leave the event loop blocked.
+	ownerScopedApprovalTimeout time.Duration
 
 	// Auto-compress settings
 	autoCompressEnabled   bool
@@ -746,6 +756,8 @@ func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath str
 		shell:                 defaultShell(),
 		shellFlag:             defaultShellFlag(),
 		pendingRestartTimeout: defaultPendingRestartTimeout,
+
+		ownerScopedApprovalTimeout: defaultOwnerScopedApprovalTimeout,
 	}
 
 	if ag != nil {
@@ -3306,7 +3318,70 @@ func (e *Engine) trySendOwnerScopedApproval(p Platform, state *interactiveState,
 		Content:  request.Summary,
 		Extra:    map[string]any{"tool_name": request.ToolName},
 	})
+	e.scheduleOwnerScopedApprovalExpiry(p, state, replyCtx, pending, request.ApprovalID)
 	return true, nil
+}
+
+func (e *Engine) scheduleOwnerScopedApprovalExpiry(p Platform, state *interactiveState, replyCtx any, pending *pendingPermission, approvalID string) {
+	timeout := e.ownerScopedApprovalTimeout
+	if timeout <= 0 {
+		timeout = defaultOwnerScopedApprovalTimeout
+	}
+
+	go func() {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			e.expireOwnerScopedApproval(p, state, replyCtx, pending, approvalID)
+		case <-pending.Resolved:
+		case <-e.ctx.Done():
+		}
+	}()
+}
+
+// expireOwnerScopedApproval wins the opaque binding before denying the
+// backend. A client response that races with expiry therefore either applies
+// once or receives the same non-sensitive expired outcome, never both.
+func (e *Engine) expireOwnerScopedApproval(p Platform, state *interactiveState, replyCtx any, pending *pendingPermission, approvalID string) {
+	binding := e.takeApprovalBinding(approvalID, p)
+	if binding == nil || binding.state != state || binding.pending != pending {
+		return
+	}
+
+	state.mu.Lock()
+	if state.pending != pending || !pending.approvalBridge || pending.RequestID != binding.requestID || !pending.claimResponse() {
+		state.mu.Unlock()
+		return
+	}
+	state.pending = nil
+	agentSession := state.agentSession
+	state.mu.Unlock()
+
+	// Unblock the event loop before touching the backend: the app-server may
+	// already have consumed its own fallback timer, but this engine-owned
+	// binding is still the authoritative waiter for the current turn.
+	pending.resolve()
+
+	if agentSession != nil {
+		if err := agentSession.RespondPermission(pending.RequestID, PermissionResult{
+			Behavior: "deny",
+			Message:  "Approval request expired.",
+		}); err != nil {
+			slog.Error("failed to deny expired owner approval")
+		}
+	}
+
+	sender, ok := p.(ApprovalResultSender)
+	if !ok {
+		return
+	}
+	if err := sender.SendApprovalResult(e.ctx, replyCtx, ApprovalResult{
+		ApprovalID: approvalID,
+		Outcome:    "expired",
+	}); err != nil {
+		slog.Warn("failed to send expired owner approval result", "platform", p.Name(), "error", err)
+	}
 }
 
 func (e *Engine) denyApprovalDelivery(p Platform, state *interactiveState, replyCtx any, pending *pendingPermission) {

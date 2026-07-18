@@ -263,6 +263,16 @@ func (p *Platform) SendApprovalRequest(ctx context.Context, rctx any, request co
 	return p.sendRoomEvent(ctx, rc.roomID, event.EventMessage, &content)
 }
 
+// SendApprovalResult emits the safe terminal projection for an owner-scoped
+// approval that the engine resolved without a client response.
+func (p *Platform) SendApprovalResult(ctx context.Context, rctx any, result core.ApprovalResult) error {
+	rc, ok := rctx.(replyContext)
+	if !ok {
+		return fmt.Errorf("matrix: invalid reply context type %T", rctx)
+	}
+	return p.sendApprovalResult(ctx, rc, result)
+}
+
 func (p *Platform) sendApprovalResult(ctx context.Context, rc replyContext, result core.ApprovalResult) error {
 	if !p.roomAllowed(rc.roomID) {
 		return fmt.Errorf("matrix: approval result room is not allowed")

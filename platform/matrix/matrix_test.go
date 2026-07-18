@@ -830,7 +830,7 @@ func TestSendApprovalRequest_UsesStrictSafeEnvelope(t *testing.T) {
 func TestSendApprovalResult_AllowsCodeOnlyForFailedOutcome(t *testing.T) {
 	p, sent := newApprovalTimelineTestPlatform(t)
 	const approvalID = "de305d54-75b4-431b-adb2-eb6b9e546014"
-	if err := p.sendApprovalResult(context.Background(), replyContext{roomID: "!room:matrix.org"}, core.ApprovalResult{
+	if err := p.SendApprovalResult(context.Background(), replyContext{roomID: "!room:matrix.org"}, core.ApprovalResult{
 		ApprovalID: approvalID,
 		Outcome:    "expired",
 		Code:       "backend_response_failed",
@@ -839,7 +839,7 @@ func TestSendApprovalResult_AllowsCodeOnlyForFailedOutcome(t *testing.T) {
 	}
 	assertNoApprovalTimelineEvent(t, sent)
 
-	if err := p.sendApprovalResult(context.Background(), replyContext{roomID: "!room:matrix.org"}, core.ApprovalResult{
+	if err := p.SendApprovalResult(context.Background(), replyContext{roomID: "!room:matrix.org"}, core.ApprovalResult{
 		ApprovalID: approvalID,
 		Outcome:    "failed",
 		Code:       "backend_response_failed",

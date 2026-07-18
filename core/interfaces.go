@@ -419,6 +419,14 @@ type ApprovalRequestSender interface {
 	SendApprovalRequest(ctx context.Context, replyCtx any, request ApprovalRequest) error
 }
 
+// ApprovalResultSender is an optional platform capability for emitting the
+// safe terminal state of an owner-scoped approval. The result contains only
+// the opaque approval ID and a stable outcome; private agent request data
+// never leaves the engine.
+type ApprovalResultSender interface {
+	SendApprovalResult(ctx context.Context, replyCtx any, result ApprovalResult) error
+}
+
 // ApprovalResponseReceiver is an optional platform capability for accepting
 // a validated owner approval response. The platform is responsible for its
 // room and sender authorization before invoking the handler.
