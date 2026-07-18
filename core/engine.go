@@ -3339,7 +3339,7 @@ func (e *Engine) trySendOwnerScopedApproval(p Platform, state *interactiveState,
 		return false, fmt.Errorf("approval request expired during delivery")
 	}
 
-	e.hooks.Emit(HookEvent{
+	e.emitOwnerScopedApprovalHook(deadlineCtx, HookEvent{
 		Event:    HookEventPermissionRequested,
 		Platform: p.Name(),
 		Content:  request.Summary,
@@ -3350,6 +3350,16 @@ func (e *Engine) trySendOwnerScopedApproval(p Platform, state *interactiveState,
 		return false, fmt.Errorf("approval request expired while notifying hooks")
 	}
 	return true, nil
+}
+
+func (e *Engine) emitOwnerScopedApprovalHook(deadlineCtx context.Context, event HookEvent) {
+	if e.hooks == nil || deadlineCtx.Err() != nil {
+		return
+	}
+	// A synchronous configured hook remains synchronous inside the hook worker,
+	// but never blocks the permission turn. Its parent context is the same
+	// absolute approval deadline, so it cannot outlive the safe denial path.
+	go e.hooks.emitContext(deadlineCtx, event)
 }
 
 func (e *Engine) startOwnerScopedApprovalDeadline(p Platform, state *interactiveState, replyCtx any, pending *pendingPermission, approvalID string) (context.Context, context.CancelFunc) {

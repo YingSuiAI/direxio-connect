@@ -128,7 +128,21 @@ func validateHookConfig(h HookConfig) error {
 
 // Emit dispatches an event to all matching hooks.
 func (hm *HookManager) Emit(event HookEvent) {
-	if hm == nil {
+	hm.emit(context.Background(), event)
+}
+
+// emitContext dispatches an event to all matching hooks while allowing a
+// bounded internal caller to cancel this specific delivery. Emit retains its
+// existing background-context behavior for all ordinary hook call sites.
+func (hm *HookManager) emitContext(ctx context.Context, event HookEvent) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	hm.emit(ctx, event)
+}
+
+func (hm *HookManager) emit(ctx context.Context, event HookEvent) {
+	if hm == nil || ctx.Err() != nil {
 		return
 	}
 	event.Project = hm.project
@@ -146,9 +160,9 @@ func (hm *HookManager) Emit(event HookEvent) {
 			continue
 		}
 		if h.isAsync() {
-			go hm.execute(h, event)
+			go hm.execute(ctx, h, event)
 		} else {
-			hm.execute(h, event)
+			hm.execute(ctx, h, event)
 		}
 	}
 }
@@ -162,18 +176,18 @@ func matchEvent(pattern, event string) bool {
 	return strings.EqualFold(pattern, event)
 }
 
-func (hm *HookManager) execute(h *HookConfig, event HookEvent) {
+func (hm *HookManager) execute(parent context.Context, h *HookConfig, event HookEvent) {
 	switch HookHandlerType(h.Type) {
 	case HookHandlerCommand:
-		hm.executeCommand(h, event)
+		hm.executeCommand(parent, h, event)
 	case HookHandlerHTTP:
-		hm.executeHTTP(h, event)
+		hm.executeHTTP(parent, h, event)
 	}
 }
 
-func (hm *HookManager) executeCommand(h *HookConfig, event HookEvent) {
+func (hm *HookManager) executeCommand(parent context.Context, h *HookConfig, event HookEvent) {
 	timeout := h.timeoutDuration()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	cmd := shellExecCommand(ctx, hm.shell, hm.shellFlag, hm.shellProfile, h.Command)
@@ -196,7 +210,7 @@ func (hm *HookManager) executeCommand(h *HookConfig, event HookEvent) {
 	)
 }
 
-func (hm *HookManager) executeHTTP(h *HookConfig, event HookEvent) {
+func (hm *HookManager) executeHTTP(parent context.Context, h *HookConfig, event HookEvent) {
 	body, err := json.Marshal(event)
 	if err != nil {
 		slog.Warn("hooks: marshal event failed", "error", err)
@@ -204,7 +218,7 @@ func (hm *HookManager) executeHTTP(h *HookConfig, event HookEvent) {
 	}
 
 	timeout := h.timeoutDuration()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.URL, bytes.NewReader(body))

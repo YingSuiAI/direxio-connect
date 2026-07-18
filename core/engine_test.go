@@ -2,8 +2,11 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8623,6 +8626,149 @@ func TestProcessInteractiveEvents_OwnerScopedApprovalDeadlineBoundsDelivery(t *t
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("processInteractiveEvents did not complete after delivery deadline")
+	}
+}
+
+func TestProcessInteractiveEvents_OwnerScopedApprovalDeadlineDoesNotBlockOnSynchronousHook(t *testing.T) {
+	hookStarted := make(chan struct{})
+	hookPayload := make(chan map[string]any, 1)
+	releaseHook := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		hookPayload <- payload
+		close(hookStarted)
+		<-releaseHook
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	defer close(releaseHook)
+
+	synchronous := false
+	p := &approvalBridgeTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "matrix"}}
+	sess := newApprovalRecordingSession("matrix-approval-hook-deadline")
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	e.ownerScopedApprovalTimeout = 100 * time.Millisecond
+	e.hooks = NewHookManager("test", []HookConfig{{
+		Event:   string(HookEventPermissionRequested),
+		Type:    "http",
+		URL:     server.URL,
+		Timeout: 5,
+		Async:   &synchronous,
+	}}, "sh", "-c", "")
+	e.bindApprovalResponseHandler(p)
+
+	key := "matrix:!room:example.com:@owner:example.com"
+	session := e.sessions.GetOrCreateActive(key)
+	state := &interactiveState{
+		agentSession: sess,
+		platform:     p,
+		replyCtx:     "ctx",
+	}
+	e.interactiveMu.Lock()
+	e.interactiveStates[key] = state
+	e.interactiveMu.Unlock()
+
+	sendDone := make(chan error, 1)
+	go func() {
+		sendDone <- sess.Send("prompt", nil, nil)
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		e.processInteractiveEvents(state, session, e.sessions, key, "m-approval-hook-deadline", time.Now(), nil, sendDone, "ctx")
+		close(done)
+	}()
+
+	select {
+	case <-sess.sendStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Send did not reach blocking wait")
+	}
+
+	const secretCommand = "echo super-secret-hook-command"
+	sess.events <- Event{
+		Type:      EventPermissionRequest,
+		RequestID: "backend-request-id-must-not-leave-core",
+		ToolName:  "Bash",
+		ToolInput: secretCommand,
+		ToolInputRaw: map[string]any{
+			"command": secretCommand,
+			"api_key": "super-secret-key",
+		},
+	}
+
+	var request ApprovalRequest
+	deadline := time.After(2 * time.Second)
+	for {
+		requests := p.approvalSnapshot()
+		if len(requests) == 1 {
+			request = requests[0]
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for owner-scoped approval request: %#v", requests)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	select {
+	case <-hookStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("synchronous permission hook did not start")
+	}
+	payload := <-hookPayload
+	publicHookPayload := fmt.Sprintf("%+v", payload)
+	for _, forbidden := range []string{secretCommand, "super-secret-key", "backend-request-id-must-not-leave-core"} {
+		if strings.Contains(publicHookPayload, forbidden) {
+			t.Fatalf("permission hook leaked %q: %s", forbidden, publicHookPayload)
+		}
+	}
+	if payload["content"] != "A local agent requests permission." {
+		t.Fatalf("permission hook content = %#v, want safe summary", payload["content"])
+	}
+
+	var expired ApprovalResult
+	deadline = time.After(2 * time.Second)
+	for {
+		results := p.approvalResultSnapshot()
+		if len(results) == 1 {
+			expired = results[0]
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("synchronous hook outlived owner approval deadline: results=%#v", results)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if expired != (ApprovalResult{ApprovalID: request.ApprovalID, Outcome: "expired"}) {
+		t.Fatalf("hook deadline result = %#v, want opaque expiry", expired)
+	}
+	if responses := sess.permissionSnapshot(); len(responses) != 1 || responses[0].result.Behavior != "deny" {
+		t.Fatalf("hook deadline backend response = %#v, want exactly one deny", responses)
+	}
+
+	close(sess.unblock)
+	sess.events <- Event{Type: EventResult, Content: "ok", Done: true}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("blocking synchronous hook kept the approval turn from completing after expiry")
+	}
+
+	late := p.respondApproval(ApprovalResponse{ApprovalID: request.ApprovalID, Decision: "allow"})
+	if late.Outcome != "expired" || late.Code != "" {
+		t.Fatalf("late owner response after hook deadline = %#v, want non-sensitive expired", late)
+	}
+	if got := len(sess.permissionSnapshot()); got != 1 {
+		t.Fatalf("late owner response after hook deadline called RespondPermission %d times, want 1", got)
+	}
+	if got := len(p.approvalResultSnapshot()); got != 1 {
+		t.Fatalf("hook deadline emitted %d approval results, want 1", got)
 	}
 }
 
