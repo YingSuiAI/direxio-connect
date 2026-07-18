@@ -8529,6 +8529,212 @@ func TestProcessInteractiveEvents_OwnerScopedApprovalExpiry(t *testing.T) {
 	}
 }
 
+func TestProcessInteractiveEvents_OwnerScopedApprovalDeadlineBoundsDelivery(t *testing.T) {
+	p := &approvalBridgeTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "matrix"}}
+	sess := newApprovalRecordingSession("matrix-approval-delivery-deadline")
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	e.ownerScopedApprovalTimeout = 25 * time.Millisecond
+	e.SetOutgoingRateLimitCfg(OutgoingRateLimitCfg{MaxPerSecond: 1.0 / 60, Burst: 1}, nil)
+	if err := e.waitOutgoing(p); err != nil {
+		t.Fatalf("consume initial outgoing rate-limit token: %v", err)
+	}
+	e.bindApprovalResponseHandler(p)
+
+	key := "matrix:!room:example.com:@owner:example.com"
+	session := e.sessions.GetOrCreateActive(key)
+	state := &interactiveState{
+		agentSession: sess,
+		platform:     p,
+		replyCtx:     "ctx",
+	}
+	e.interactiveMu.Lock()
+	e.interactiveStates[key] = state
+	e.interactiveMu.Unlock()
+
+	sendDone := make(chan error, 1)
+	go func() {
+		sendDone <- sess.Send("prompt", nil, nil)
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		e.processInteractiveEvents(state, session, e.sessions, key, "m-approval-delivery-deadline", time.Now(), nil, sendDone, "ctx")
+		close(done)
+	}()
+
+	select {
+	case <-sess.sendStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Send did not reach blocking wait")
+	}
+
+	sess.events <- Event{
+		Type:      EventPermissionRequest,
+		RequestID: "backend-request-id-must-not-leave-core",
+		ToolName:  "Bash",
+		ToolInput: "echo super-secret-delivery-command",
+		ToolInputRaw: map[string]any{
+			"command": "echo super-secret-delivery-command",
+			"api_key": "super-secret-key",
+		},
+	}
+
+	var expired ApprovalResult
+	deadline := time.After(2 * time.Second)
+	for {
+		results := p.approvalResultSnapshot()
+		if len(results) == 1 {
+			expired = results[0]
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("outgoing rate-limit wait outlived owner approval deadline: results=%#v", results)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if expired.Outcome != "expired" || expired.Code != "" || expired.ApprovalID == "" {
+		t.Fatalf("delivery deadline result = %#v, want safe opaque expiry", expired)
+	}
+	if requests := p.approvalSnapshot(); len(requests) != 0 {
+		t.Fatalf("expired approval published a stale request after rate-limit wait: %#v", requests)
+	}
+	if responses := sess.permissionSnapshot(); len(responses) != 1 || responses[0].result.Behavior != "deny" {
+		t.Fatalf("delivery deadline backend response = %#v, want exactly one deny", responses)
+	}
+	state.mu.Lock()
+	pending := state.pending
+	state.mu.Unlock()
+	if pending != nil {
+		t.Fatal("delivery deadline left the core permission wait pending")
+	}
+	e.approvalMu.Lock()
+	bindingCount := len(e.approvalBindings)
+	e.approvalMu.Unlock()
+	if bindingCount != 0 {
+		t.Fatalf("delivery deadline left %d stale approval bindings", bindingCount)
+	}
+
+	// Restore normal delivery before the terminal agent result is rendered.
+	e.SetOutgoingRateLimitCfg(OutgoingRateLimitCfg{}, nil)
+	close(sess.unblock)
+	sess.events <- Event{Type: EventResult, Content: "ok", Done: true}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("processInteractiveEvents did not complete after delivery deadline")
+	}
+}
+
+func TestEngineStop_ResolvesOwnerScopedApproval(t *testing.T) {
+	p := &approvalBridgeTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "matrix"}}
+	sess := newApprovalRecordingSession("matrix-approval-stop")
+	defer close(sess.unblock)
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	e.ownerScopedApprovalTimeout = time.Hour
+	e.bindApprovalResponseHandler(p)
+
+	key := "matrix:!room:example.com:@owner:example.com"
+	session := e.sessions.GetOrCreateActive(key)
+	state := &interactiveState{
+		agentSession: sess,
+		platform:     p,
+		replyCtx:     "ctx",
+	}
+	e.interactiveMu.Lock()
+	e.interactiveStates[key] = state
+	e.interactiveMu.Unlock()
+
+	sendDone := make(chan error, 1)
+	go func() {
+		sendDone <- sess.Send("prompt", nil, nil)
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		e.processInteractiveEvents(state, session, e.sessions, key, "m-approval-stop", time.Now(), nil, sendDone, "ctx")
+		close(done)
+	}()
+
+	select {
+	case <-sess.sendStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Send did not reach blocking wait")
+	}
+
+	sess.events <- Event{
+		Type:      EventPermissionRequest,
+		RequestID: "backend-request-id-must-not-leave-core",
+		ToolName:  "Bash",
+		ToolInput: "echo super-secret-stop-command",
+		ToolInputRaw: map[string]any{
+			"command": "echo super-secret-stop-command",
+			"api_key": "super-secret-key",
+		},
+	}
+
+	var request ApprovalRequest
+	deadline := time.After(2 * time.Second)
+	for {
+		requests := p.approvalSnapshot()
+		if len(requests) == 1 {
+			request = requests[0]
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for owner-scoped approval request: %#v", requests)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	stopDone := make(chan error, 1)
+	go func() {
+		stopDone <- e.Stop()
+	}()
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			t.Fatalf("Stop: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop left the owner approval wait blocked")
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("processInteractiveEvents remained blocked after Stop")
+	}
+
+	state.mu.Lock()
+	pending := state.pending
+	state.mu.Unlock()
+	if pending != nil {
+		t.Fatal("Stop left the owner approval pending")
+	}
+	e.approvalMu.Lock()
+	bindingCount := len(e.approvalBindings)
+	e.approvalMu.Unlock()
+	if bindingCount != 0 {
+		t.Fatalf("Stop left %d stale approval bindings", bindingCount)
+	}
+	if results := p.approvalResultSnapshot(); len(results) != 0 {
+		t.Fatalf("Stop emitted approval result events: %#v", results)
+	}
+	responses := sess.permissionSnapshot()
+	if len(responses) != 1 || responses[0].result.Behavior != "deny" {
+		t.Fatalf("Stop backend response = %#v, want exactly one safe deny", responses)
+	}
+
+	late := p.respondApproval(ApprovalResponse{ApprovalID: request.ApprovalID, Decision: "allow"})
+	if late.Outcome != "expired" || late.Code != "" {
+		t.Fatalf("late owner response after Stop = %#v, want non-sensitive expired", late)
+	}
+	if got := len(sess.permissionSnapshot()); got != 1 {
+		t.Fatalf("late owner response after Stop called RespondPermission %d times, want 1", got)
+	}
+}
+
 func TestReapIdleWorkspaces_SkipsWorkspaceWithActiveTurn(t *testing.T) {
 	p := &stubPlatformEngine{n: "test"}
 	sess := newBlockingSendSession("busy-turn")

@@ -792,6 +792,22 @@ func TestSendApprovalRequest_RequiresConfiguredOwner(t *testing.T) {
 	}
 }
 
+func TestSendApprovalRequest_DoesNotPublishAfterContextCancellation(t *testing.T) {
+	p, sent := newApprovalTimelineTestPlatform(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := p.SendApprovalRequest(ctx, replyContext{roomID: "!room:matrix.org"}, core.ApprovalRequest{
+		ApprovalID: "de305d54-75b4-431b-adb2-eb6b9e546014",
+		Kind:       "tool",
+		ToolName:   "Bash",
+		Summary:    "A local agent requests permission.",
+	})
+	if err != context.Canceled {
+		t.Fatalf("SendApprovalRequest with cancelled context = %v, want context.Canceled", err)
+	}
+	assertNoApprovalTimelineEvent(t, sent)
+}
+
 func TestSendApprovalRequest_UsesStrictSafeEnvelope(t *testing.T) {
 	p, sent := newApprovalTimelineTestPlatform(t)
 	const approvalID = "de305d54-75b4-431b-adb2-eb6b9e546014"

@@ -2279,6 +2279,10 @@ func (e *Engine) Stop() error {
 
 	// Cancel first so late lifecycle callbacks observe shutdown immediately.
 	e.cancel()
+	// Wake any permission event loop before stopping platforms or closing the
+	// backend. Owner-scoped bindings are removed without emitting timeline
+	// results, so shutdown cannot leak a private request through a late click.
+	e.resolvePendingApprovalsForStop()
 
 	if e.observeCancel != nil {
 		e.observeCancel()
@@ -2299,6 +2303,13 @@ func (e *Engine) Stop() error {
 		delete(e.interactiveStates, k)
 	}
 	e.interactiveMu.Unlock()
+	stopStates := make([]*interactiveState, 0, len(states))
+	for _, state := range states {
+		stopStates = append(stopStates, state)
+	}
+	// A late in-flight event may have reached a state while platform shutdown
+	// was running; clear the extracted states once more before closing them.
+	e.resolvePendingApprovalsForStopStates(stopStates)
 
 	for key, state := range states {
 		if state.agentSession != nil {
@@ -3276,6 +3287,9 @@ func (e *Engine) trySendOwnerScopedApproval(p Platform, state *interactiveState,
 	if !ok {
 		return false, ErrApprovalBridgeUnavailable
 	}
+	if err := e.ctx.Err(); err != nil {
+		return false, err
+	}
 
 	request := ApprovalRequest{
 		ApprovalID: uuid.NewString(),
@@ -3296,11 +3310,20 @@ func (e *Engine) trySendOwnerScopedApproval(p Platform, state *interactiveState,
 	state.mu.Unlock()
 
 	e.registerApprovalBinding(request.ApprovalID, p, state, pending)
-	if err := e.waitOutgoing(p); err != nil {
+	deadlineCtx, cancelDeadline := e.startOwnerScopedApprovalDeadline(p, state, replyCtx, pending, request.ApprovalID)
+	if err := e.waitOutgoingContext(deadlineCtx, p); err != nil {
+		e.ownerScopedApprovalDeadlineExpired(deadlineCtx, p, state, replyCtx, pending, request.ApprovalID)
+		cancelDeadline()
 		e.clearApprovalBindingForPending(pending)
 		return false, fmt.Errorf("wait approval delivery: %w", err)
 	}
-	if err := sender.SendApprovalRequest(e.ctx, replyCtx, request); err != nil {
+	if e.ownerScopedApprovalDeadlineExpired(deadlineCtx, p, state, replyCtx, pending, request.ApprovalID) || deadlineCtx.Err() != nil || !e.ownerScopedApprovalBindingActive(request.ApprovalID, p, state, pending) {
+		cancelDeadline()
+		return false, fmt.Errorf("approval request expired before delivery")
+	}
+	if err := sender.SendApprovalRequest(deadlineCtx, replyCtx, request); err != nil {
+		e.ownerScopedApprovalDeadlineExpired(deadlineCtx, p, state, replyCtx, pending, request.ApprovalID)
+		cancelDeadline()
 		e.clearApprovalBindingForPending(pending)
 		if errors.Is(err, ErrApprovalBridgeUnavailable) {
 			state.mu.Lock()
@@ -3311,6 +3334,10 @@ func (e *Engine) trySendOwnerScopedApproval(p Platform, state *interactiveState,
 		}
 		return false, err
 	}
+	if e.ownerScopedApprovalDeadlineExpired(deadlineCtx, p, state, replyCtx, pending, request.ApprovalID) || deadlineCtx.Err() != nil || !e.ownerScopedApprovalBindingActive(request.ApprovalID, p, state, pending) {
+		cancelDeadline()
+		return false, fmt.Errorf("approval request expired during delivery")
+	}
 
 	e.hooks.Emit(HookEvent{
 		Event:    HookEventPermissionRequested,
@@ -3318,26 +3345,53 @@ func (e *Engine) trySendOwnerScopedApproval(p Platform, state *interactiveState,
 		Content:  request.Summary,
 		Extra:    map[string]any{"tool_name": request.ToolName},
 	})
-	e.scheduleOwnerScopedApprovalExpiry(p, state, replyCtx, pending, request.ApprovalID)
+	if e.ownerScopedApprovalDeadlineExpired(deadlineCtx, p, state, replyCtx, pending, request.ApprovalID) || deadlineCtx.Err() != nil || !e.ownerScopedApprovalBindingActive(request.ApprovalID, p, state, pending) {
+		cancelDeadline()
+		return false, fmt.Errorf("approval request expired while notifying hooks")
+	}
 	return true, nil
 }
 
-func (e *Engine) scheduleOwnerScopedApprovalExpiry(p Platform, state *interactiveState, replyCtx any, pending *pendingPermission, approvalID string) {
+func (e *Engine) startOwnerScopedApprovalDeadline(p Platform, state *interactiveState, replyCtx any, pending *pendingPermission, approvalID string) (context.Context, context.CancelFunc) {
 	timeout := e.ownerScopedApprovalTimeout
 	if timeout <= 0 {
 		timeout = defaultOwnerScopedApprovalTimeout
 	}
+	deadlineCtx, cancel := context.WithTimeout(e.ctx, timeout)
 
 	go func() {
-		timer := time.NewTimer(timeout)
-		defer timer.Stop()
+		defer cancel()
 		select {
-		case <-timer.C:
-			e.expireOwnerScopedApproval(p, state, replyCtx, pending, approvalID)
 		case <-pending.Resolved:
-		case <-e.ctx.Done():
+		case <-deadlineCtx.Done():
+			if errors.Is(deadlineCtx.Err(), context.DeadlineExceeded) {
+				e.expireOwnerScopedApproval(p, state, replyCtx, pending, approvalID)
+			}
 		}
 	}()
+	return deadlineCtx, cancel
+}
+
+func (e *Engine) ownerScopedApprovalBindingActive(approvalID string, p Platform, state *interactiveState, pending *pendingPermission) bool {
+	e.approvalMu.Lock()
+	binding := e.approvalBindings[approvalID]
+	e.approvalMu.Unlock()
+	if binding == nil || binding.platform != p || binding.state != state || binding.pending != pending {
+		return false
+	}
+
+	state.mu.Lock()
+	active := state.pending == pending && pending.approvalBridge && pending.RequestID == binding.requestID
+	state.mu.Unlock()
+	return active
+}
+
+func (e *Engine) ownerScopedApprovalDeadlineExpired(deadlineCtx context.Context, p Platform, state *interactiveState, replyCtx any, pending *pendingPermission, approvalID string) bool {
+	if !errors.Is(deadlineCtx.Err(), context.DeadlineExceeded) {
+		return false
+	}
+	e.expireOwnerScopedApproval(p, state, replyCtx, pending, approvalID)
+	return true
 }
 
 // expireOwnerScopedApproval wins the opaque binding before denying the
@@ -3381,6 +3435,49 @@ func (e *Engine) expireOwnerScopedApproval(p Platform, state *interactiveState, 
 		Outcome:    "expired",
 	}); err != nil {
 		slog.Warn("failed to send expired owner approval result", "platform", p.Name(), "error", err)
+	}
+}
+
+func (e *Engine) resolvePendingApprovalsForStop() {
+	e.interactiveMu.Lock()
+	states := make([]*interactiveState, 0, len(e.interactiveStates))
+	for _, state := range e.interactiveStates {
+		states = append(states, state)
+	}
+	e.interactiveMu.Unlock()
+	e.resolvePendingApprovalsForStopStates(states)
+}
+
+func (e *Engine) resolvePendingApprovalsForStopStates(states []*interactiveState) {
+	for _, state := range states {
+		if state == nil {
+			continue
+		}
+		state.markStopped()
+		state.mu.Lock()
+		pending := state.pending
+		state.pending = nil
+		agentSession := state.agentSession
+		state.mu.Unlock()
+		if pending == nil {
+			continue
+		}
+
+		e.clearApprovalBindingForPending(pending)
+		if pending.approvalBridge && pending.claimResponse() && agentSession != nil {
+			// Do not publish an approval result while the engine is stopping. The
+			// bridge binding is already removed, so any late owner click is an
+			// opaque expired no-op.
+			pending.resolve()
+			if err := agentSession.RespondPermission(pending.RequestID, PermissionResult{
+				Behavior: "deny",
+				Message:  "Approval request cancelled because the engine is stopping.",
+			}); err != nil {
+				slog.Error("failed to deny owner approval during engine stop")
+			}
+			continue
+		}
+		pending.resolve()
 	}
 }
 
@@ -11654,10 +11751,14 @@ func (e *Engine) sendAskQuestionPrompt(p Platform, replyCtx any, questions []Use
 
 // waitOutgoing blocks on the per-platform outgoing rate limiter when enabled.
 func (e *Engine) waitOutgoing(p Platform) error {
+	return e.waitOutgoingContext(e.ctx, p)
+}
+
+func (e *Engine) waitOutgoingContext(ctx context.Context, p Platform) error {
 	if e.outgoingRL == nil {
-		return nil
+		return ctx.Err()
 	}
-	return e.outgoingRL.Wait(e.ctx, p.Name())
+	return e.outgoingRL.Wait(ctx, p.Name())
 }
 
 func (e *Engine) renderOutgoingContentForWorkspace(p Platform, content, workspaceDir string) string {

@@ -233,6 +233,9 @@ func (p *Platform) SetApprovalResponseHandler(handler core.ApprovalResponseHandl
 // SendApprovalRequest emits the safe public projection of a pending agent
 // permission. It is disabled until an exact Matrix owner is configured.
 func (p *Platform) SendApprovalRequest(ctx context.Context, rctx any, request core.ApprovalRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if p.approvalOwnerID == "" {
 		return core.ErrApprovalBridgeUnavailable
 	}
