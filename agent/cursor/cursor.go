@@ -51,13 +51,24 @@ func New(opts map[string]any) (core.Agent, error) {
 	model, _ := opts["model"].(string)
 	mode, _ := opts["mode"].(string)
 	mode = normalizeMode(mode)
-	cmd, extraArgs := core.ParseCmdOpts(opts, "agent")
+	cmd, extraArgs := parseCursorCmdOpts(opts)
 	if core.ParseMCPConfig(opts).Enabled() {
 		return nil, fmt.Errorf("cursor: MCP capability is host-managed; configure MCP in the Cursor host")
 	}
-	if _, err := exec.LookPath(cmd); err != nil {
-		return nil, fmt.Errorf("cursor: %q CLI not found in PATH, install with: npm i -g @anthropic-ai/cursor-agent (or from Cursor IDE settings)", cmd)
+	resolvedCmd, err := exec.LookPath(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("cursor: %q CLI not found in PATH; install the official Cursor Agent CLI from https://cursor.com/install, then set [projects.agent.options] cmd to its absolute path for launchd/system services", cmd)
 	}
+	if !filepath.IsAbs(resolvedCmd) {
+		resolvedCmd, err = filepath.Abs(resolvedCmd)
+		if err != nil {
+			return nil, fmt.Errorf("cursor: resolve %q CLI path: %w", cmd, err)
+		}
+	}
+	// Keep the child command absolute. Service managers such as launchd do not
+	// run a login shell, so a PATH-only `agent` command can work interactively
+	// and then fail when the bridge is started as a daemon.
+	cmd = resolvedCmd
 
 	return &Agent{
 		workDir:      workDir,
@@ -68,6 +79,36 @@ func New(opts map[string]any) (core.Agent, error) {
 		configEnv:    core.ParseConfigEnv(opts),
 		activeIdx:    -1,
 	}, nil
+}
+
+// parseCursorCmdOpts keeps an explicitly configured executable path intact
+// when a user's home directory contains spaces. TOML has already removed the
+// surrounding string quotes by the time options reach this package, so the
+// generic command parser cannot distinguish those spaces from argument
+// separators. The existing parser remains the source of truth for all other
+// command forms and deprecated option names.
+func parseCursorCmdOpts(opts map[string]any) (cmd string, extraArgs []string) {
+	cmd, extraArgs = core.ParseCmdOpts(opts, "agent")
+	raw, ok := opts["cmd"].(string)
+	if !ok {
+		return cmd, extraArgs
+	}
+	raw = strings.TrimSpace(raw)
+	fields := strings.Fields(raw)
+	if len(fields) <= 1 {
+		return cmd, extraArgs
+	}
+	if info, err := os.Stat(raw); err == nil && !info.IsDir() {
+		return raw, nil
+	}
+	for i := len(fields) - 1; i > 0; i-- {
+		candidate := strings.Join(fields[:i], " ")
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() {
+			return candidate, fields[i:]
+		}
+	}
+	return cmd, extraArgs
 }
 
 func normalizeMode(raw string) string {

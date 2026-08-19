@@ -167,8 +167,9 @@ func (cs *cursorSession) readLoop(cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf
 		if err := cmd.Wait(); err != nil {
 			stderrMsg := strings.TrimSpace(stderrBuf.String())
 			if stderrMsg != "" {
+				diagnostic := cursorProcessDiagnostic(cs.cmd, stderrMsg)
 				slog.Error("cursorSession: process failed", "error", err, "stderr", stderrMsg)
-				evt := core.Event{Type: core.EventError, Error: fmt.Errorf("%s", stderrMsg)}
+				evt := core.Event{Type: core.EventError, Error: diagnostic}
 				select {
 				case cs.events <- evt:
 				case <-cs.ctx.Done():
@@ -206,6 +207,30 @@ func (cs *cursorSession) readLoop(cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf
 		case <-cs.ctx.Done():
 			return
 		}
+	}
+}
+
+// cursorProcessDiagnostic preserves the CLI's stderr while adding a stable,
+// actionable prefix for common headless-daemon failures. The deployer uses
+// the preserved phrases (for example "agent login" and "not ready") to
+// classify startup failures, while operators get an exact command to run.
+func cursorProcessDiagnostic(cmd, stderr string) error {
+	lower := strings.ToLower(stderr)
+	switch {
+	case strings.Contains(lower, "authentication required"),
+		strings.Contains(lower, "not authenticated"),
+		strings.Contains(lower, "not logged in"),
+		strings.Contains(lower, "login required"),
+		strings.Contains(lower, "run 'agent login'"),
+		strings.Contains(lower, "run `agent login`"):
+		return fmt.Errorf("cursor: Cursor Agent CLI authentication is required; run `%s login` once (or set CURSOR_API_KEY/CURSOR_AUTH_TOKEN): %s", cmd, stderr)
+	case strings.Contains(lower, "workspace trust"),
+		strings.Contains(lower, "not ready"),
+		strings.Contains(lower, "agent is offline"),
+		strings.Contains(lower, "agent backend offline"):
+		return fmt.Errorf("cursor: Cursor Agent CLI is not ready; run `%s status`, trust the workspace, and retry: %s", cmd, stderr)
+	default:
+		return fmt.Errorf("%s", stderr)
 	}
 }
 

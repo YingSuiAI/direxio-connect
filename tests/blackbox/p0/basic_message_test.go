@@ -41,8 +41,8 @@ func TestP0_1_BasicMessageFlow_Codex(t *testing.T) {
 	testBasicMessageFlow(t, "codex")
 }
 
-// TestP0_1_BasicMessageFlow_Cursor tests the cursor agent (agent binary,
-// @anthropic-ai/cursor-agent). Set CC_BLACKBOX_CURSOR_API_KEY + optionally
+// TestP0_1_BasicMessageFlow_Cursor tests the Cursor Agent CLI (agent binary).
+// Set CC_BLACKBOX_CURSOR_API_KEY + optionally
 // CC_BLACKBOX_CURSOR_MODEL (e.g. "claude-sonnet-4-5") to run.
 // Cursor supports composer-2-fast via the model name; use a cheap model
 // for CI (e.g. "claude-haiku-3-5-20241022").

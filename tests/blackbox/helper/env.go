@@ -257,8 +257,8 @@ func requireAgent(t *testing.T, agentType string) {
 	t.Helper()
 
 	// agentBinName returns the primary CLI binary name for the agent type.
-	// The cursor type uses "agent" (from @anthropic-ai/cursor-agent), not
-	// the Cursor IDE "cursor" binary.
+	// The cursor type uses Cursor's official Agent CLI, named "agent", not the
+	// Cursor IDE "cursor" binary.
 	bin := agentBinName(agentType)
 	if bin == "" {
 		t.Skipf("blackbox skip: unknown agent type %q", agentType)
@@ -418,9 +418,8 @@ func agentBinName(agentType string) string {
 	case "gemini":
 		return "gemini"
 	case "cursor":
-		// Cursor Agent CLI installed via npm: @anthropic-ai/cursor-agent.
-		// The binary is named "agent" by default; some installations also link
-		// it as "cursor". We try "agent" first.
+		// Cursor's official Agent CLI binary is named "agent" by default; some
+		// installations also link it as "cursor". We try "agent" first.
 		return "agent"
 	case "opencode":
 		return "opencode"
