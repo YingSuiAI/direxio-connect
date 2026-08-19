@@ -514,6 +514,70 @@ func TestInstallLaunchd_WritesPlistAt0600(t *testing.T) {
 	}
 }
 
+func TestInstallLaunchdRetriesTransientBootstrapForOnlyRequestedService(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	orig := runLaunchctl
+	t.Cleanup(func() { runLaunchctl = orig })
+
+	serviceName := "t1.dirextalk.ai"
+	guiDomain := launchdGUIDomain()
+	requestedTarget := launchdTarget(guiDomain, serviceName)
+	requestedPlist := launchdPlistPath(serviceName)
+	requestedSuffix := "/" + launchdLabelForService(serviceName)
+	var calls []string
+	bootstrapCalls := 0
+	runLaunchctl = func(args ...string) (string, error) {
+		calls = append(calls, strings.Join(args, " "))
+		if len(args) == 0 {
+			return "", nil
+		}
+		switch args[0] {
+		case "print":
+			if len(args) >= 2 && args[1] == guiDomain {
+				return "subsystem", nil
+			}
+		case "bootstrap":
+			if len(args) != 3 || args[1] != guiDomain || args[2] != requestedPlist {
+				t.Fatalf("bootstrap touched unexpected target: %#v", args)
+			}
+			bootstrapCalls++
+			if bootstrapCalls == 1 {
+				return "Bootstrap failed: 5", fmt.Errorf("exit status 5")
+			}
+		case "bootout":
+			if len(args) != 2 || !strings.HasSuffix(args[1], requestedSuffix) {
+				t.Fatalf("bootout touched unexpected service: %#v", args)
+			}
+		case "kickstart":
+			if len(args) != 3 || args[1] != "-kp" || args[2] != requestedTarget {
+				t.Fatalf("kickstart touched unexpected target: %#v", args)
+			}
+		}
+		return "", nil
+	}
+
+	mgr := &launchdManager{serviceName: serviceName}
+	cfg := Config{
+		ServiceName: serviceName,
+		BinaryPath:  "/bin/true",
+		WorkDir:     t.TempDir(),
+		LogFile:     filepath.Join(t.TempDir(), "cc.log"),
+		LogMaxSize:  1024,
+		EnvPATH:     "/usr/bin",
+	}
+	if err := mgr.Install(cfg); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if bootstrapCalls != 2 {
+		t.Fatalf("bootstrap calls = %d, want 2", bootstrapCalls)
+	}
+	if containsCall(calls, "bootout gui/"+launchdLabelForService("other.dirextalk.ai")) || containsCall(calls, "bootout user/"+launchdLabelForService("other.dirextalk.ai")) {
+		t.Fatalf("Install touched another service: %#v", calls)
+	}
+}
+
 // TestInstallLaunchd_TightensExistingPlistFrom0644 covers the upgrade
 // path: a user from an earlier cc-connect version may already have a
 // 0644 plist on disk; os.WriteFile would truncate-in-place and *keep*

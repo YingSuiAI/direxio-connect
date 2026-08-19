@@ -67,7 +67,7 @@ func (m *launchdManager) Install(cfg Config) error {
 	}
 
 	domain := preferredLaunchdDomain()
-	if out, err := runLaunchctl("bootstrap", domain, plistPath); err != nil {
+	if out, err := bootstrapLaunchd(domain, plistPath); err != nil {
 		return fmt.Errorf("launchctl bootstrap: %s (%w)", out, err)
 	}
 
@@ -138,8 +138,21 @@ func (m *launchdManager) Restart() error {
 
 	plistPath := launchdPlistPath(serviceName)
 
-	// launchd bootout is asynchronous; retry bootstrap with backoff
-	// to avoid "Bootstrap failed: 5" race condition.
+	if out, err := bootstrapLaunchd(domain, plistPath); err != nil {
+		return fmt.Errorf("restart: %s (%w)", out, err)
+	}
+	if _, err := runLaunchctl("kickstart", "-kp", target); err != nil {
+		return fmt.Errorf("restart kickstart: %w", err)
+	}
+	return nil
+}
+
+// bootstrapLaunchd converges a service after bootout. launchd removes jobs
+// asynchronously, so an immediate bootstrap can transiently fail with status
+// 5 while the old instance is still being unloaded. The plist path is already
+// derived from the caller's normalized service name; retries therefore remain
+// scoped to that one service.
+func bootstrapLaunchd(domain, plistPath string) (string, error) {
 	var out string
 	var err error
 	for i := 0; i < 3; i++ {
@@ -152,12 +165,9 @@ func (m *launchdManager) Restart() error {
 		}
 	}
 	if err != nil {
-		return fmt.Errorf("restart: %s (%w)", out, err)
+		return out, err
 	}
-	if _, err := runLaunchctl("kickstart", "-kp", target); err != nil {
-		return fmt.Errorf("restart kickstart: %w", err)
-	}
-	return nil
+	return out, nil
 }
 
 func (m *launchdManager) Status() (*Status, error) {
